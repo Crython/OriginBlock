@@ -1,10 +1,10 @@
-﻿# CMakeList.txt : CMake project for VoxelEngine, include source and define
+﻿# CMakeList.txt : CMake project for OriginBlock, include source and define
 # project specific logic here.
 #
 
 
 cmake_minimum_required(VERSION 3.16)
-project(VoxelEngine)
+project(OriginBlock)
 
 set(CMAKE_CXX_STANDARD 20)
 
