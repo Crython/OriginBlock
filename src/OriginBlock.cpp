@@ -1,10 +1,10 @@
 ﻿/*
- * VOXELENGINE.CPP
+ * ORIGINBLOCK.CPP
  * 
  * Main engine entry point and game loop implementation.
  * 
  * ARCHITECTURE:
- * - Fixed timestep game loop (60 updates/sec) with variable rendering
+ * - Fixed timestep game loop (60 updates/sec) with variable rendering (may vary during development)
  * - Separate input, update, and render phases
  * - Camera system with smooth acceleration/deceleration
  * - Block interaction system (raycast-based placement/breaking)
@@ -17,7 +17,7 @@
  * 4. Draw UI elements (crosshair, HUD)
  */
 
-#include "VoxelEngine.hpp"
+#include "OriginBlock.hpp"
 
 // ===========================
 // PHYSICS & MOVEMENT CONSTANTS

@@ -1,5 +1,5 @@
 
-#include "VoxelEngine.hpp"
+#include "OriginBlock.hpp"
 /*
 static constexpr glm::vec3 ObjectScale = { 1.0f, 1.0f, 1.0f }; // Global scale for all objects
 
