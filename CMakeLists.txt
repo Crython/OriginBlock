@@ -33,10 +33,10 @@ find_package(OpenGL REQUIRED)
 find_package(Threads REQUIRED)
 
 # Add executable
-add_executable(VoxelEngine "src/OriginBlock.cpp" "src/glad/glad.c" "src/shader.cpp" "src/inputs.cpp" "src/textureManager.cpp" "src/texture.cpp" "src/stb_image.cpp" "src/chunk.cpp" "src/Worlds.cpp" "src/terrain.cpp" "src/commands.cpp" "src/ThreadedChunkSystem.cpp" "src/TextRenderer.cpp")
+add_executable(OriginBlock "src/OriginBlock.cpp" "src/glad/glad.c" "src/shader.cpp" "src/inputs.cpp" "src/textureManager.cpp" "src/texture.cpp" "src/stb_image.cpp" "src/chunk.cpp" "src/Worlds.cpp" "src/terrain.cpp" "src/commands.cpp" "src/ThreadedChunkSystem.cpp" "src/TextRenderer.cpp")
 
 # Include headers
-target_include_directories(VoxelEngine PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_include_directories(OriginBlock PRIVATE ${PROJECT_SOURCE_DIR}/include)
 
 add_library(glfw STATIC IMPORTED)
 set_target_properties(glfw PROPERTIES
@@ -45,20 +45,20 @@ set_target_properties(glfw PROPERTIES
 )
 
 # Link libraries
-target_link_libraries(VoxelEngine
+target_link_libraries(OriginBlock
     sfml-system
     OpenGL::GL
     glfw
     Threads::Threads
 )
 
-add_custom_command(TARGET VoxelEngine POST_BUILD
+add_custom_command(TARGET OriginBlock POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_SOURCE_DIR}/assets
-        $<TARGET_FILE_DIR:VoxelEngine>/assets
+        $<TARGET_FILE_DIR:OriginBlock>/assets
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_SOURCE_DIR}/res
-        $<TARGET_FILE_DIR:VoxelEngine>/res
+        $<TARGET_FILE_DIR:OriginBlock>/res
 )
 
 
