@@ -25,7 +25,7 @@
 
 
 // SFML headers
-// #include "SFML/OpenGL.hpp" // Not needed if using glad
+#include "SFML/OpenGL.hpp" // Not needed if using glad
 #include "SFML/System.hpp"
 #include <SFML/Audio.hpp>     // Sounds, music
 #include <SFML/Network.hpp>   // Optional

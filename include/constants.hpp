@@ -23,9 +23,10 @@ constexpr int POS_RENDER_RADIUS_Y = 10;  // +Y
 
 // Chunk constants
 constexpr int PAD = 1;
-constexpr int SIZE = CHUNK_SIZE + 2 * PAD;
+constexpr int PADDED_CHUNK_SIZE = CHUNK_SIZE + 2 * PAD;
 
-
+constexpr int CHUNK_LOD_LEVEL_DISTANCES[4] = {15, 30, 45, 60}; // Each chunk at a set distance from the player uses its closest corresponding LOD from the array
+constexpr int MAX_LOD_RADIUS = 4; // Chunks in this range have to have the highest LOD
 
 // Physics constants
 constexpr float GRAVITY = -24.0f;
