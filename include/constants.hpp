@@ -2,6 +2,8 @@
 #ifndef CONSTANTS_HPP
 #define CONSTANTS_HPP
 
+#include <utility>
+
 // Window constants
 constexpr size_t WINDOW_WIDTH = 1920; // 1280
 constexpr size_t WINDOW_HEIGHT = 1080; // 720
@@ -11,10 +13,10 @@ constexpr float PI = 3.14159265358979323846f;
 
 
 // World constants
-constexpr int CHUNK_SIZE = 16; // Size of a chunk in blocks (16x16x16)
-constexpr size_t MAX_CHUNK_UPDATES_PER_FRAME = 512; // Faster meshing and generation processing
-constexpr size_t MAX_CHUNKS_LOADED_PER_FRAME = 512; // Faster request batching
-constexpr size_t MAX_CHUNKS_POPPED_PER_FRAME = 2048;
+constexpr int CHUNK_SIZE = 16; // Size of a chunk in blocks (16x16x16) DO NOT CHANGE!!!!
+constexpr size_t MAX_CHUNK_UPDATES_PER_FRAME = 512;
+constexpr size_t MAX_CHUNKS_LOADED_PER_FRAME = 512;
+constexpr size_t MAX_CHUNKS_POPPED_PER_FRAME = 3072;
 
 
 constexpr int RENDER_RADIUS = 40;        // -X/X, -Z/Z
@@ -25,8 +27,17 @@ constexpr int POS_RENDER_RADIUS_Y = 10;  // +Y
 constexpr int PAD = 1;
 constexpr int PADDED_CHUNK_SIZE = CHUNK_SIZE + 2 * PAD;
 
-constexpr int CHUNK_LOD_LEVEL_DISTANCES[4] = {15, 30, 45, 60}; // Each chunk at a set distance from the player uses its closest corresponding LOD from the array
+// Each chunk at a set distance from the player uses its closest corresponding LOD from the array
+// Distances are pre-squared: 0^2, 15^2, 30^2, 45^2, 60^2
+constexpr std::pair<int, int> CHUNK_LOD_LEVEL_DISTANCES[5] = {
+    {0, 1},
+    {225, 2},    // 15 * 15
+    {900, 4},    // 30 * 30
+    {2025, 8},   // 45 * 45
+    {3600, 16}   // 60 * 60
+}; 
 constexpr int MAX_LOD_RADIUS = 4; // Chunks in this range have to have the highest LOD
+constexpr int MAX_LOD_RADIUS_SQUARED = MAX_LOD_RADIUS * MAX_LOD_RADIUS; // Precalculate the constant
 
 // Physics constants
 constexpr float GRAVITY = -24.0f;

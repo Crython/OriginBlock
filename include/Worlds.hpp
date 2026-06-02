@@ -98,7 +98,7 @@ public:
     std::unique_ptr<ThreadedChunkSystem> chunkThreads;
     
     // Enable/disable threaded chunk loading
-    bool useThreadedChunks = true;
+    bool useThreadedChunks = false;
         
     void setRandSeed();
 
@@ -107,7 +107,7 @@ public:
 
     // Misc
     void markDirty(Chunk* c);
-    void draw(Shader& shader, const glm::vec3& lightDir, const glm::mat4& VP, const glm::dvec3& cameraPos, float& chunksRendered);
+    void draw(Shader& shader, const glm::vec3& lightDir, const glm::mat4& VP, const glm::dvec3& cameraPos, int& verticesRendered);
     ChunkCoord worldToChunk(glm::ivec3 worldPos) const;
 
     // Block interaction
@@ -124,7 +124,7 @@ public:
 
     // Chunk management
     void updateLoadedChunks(const glm::dvec3& playerPos, glm::vec3 viewDir, const uint32_t seed); 
-    void rebuildDirtyChunks(glm::vec3 lightDir);
+    void rebuildDirtyChunks(const glm::vec3& lightDir, const glm::dvec3& playerPos);
     void loadChunk(const ChunkCoord& coord, int seed, bool immediate = false);
     ChunkMap::iterator unloadChunk(ChunkMap::iterator it);
     void reviveChunk(const ChunkCoord& coord, bool immediate = false);

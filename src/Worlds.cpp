@@ -217,6 +217,10 @@ void World::markDirty(Chunk* c)
 {
     if (!c) return;
 
+    if (chunkThreads && chunkThreads->isPendingMesh(c->getChunkPos())) {
+        c->meshDirtyDuringBuild = true;
+    }
+
     if (!c->isDirty(Dirty_Mesh)) {
         c->markDirty(Dirty_Mesh);
     }
@@ -228,7 +232,7 @@ void World::markDirty(Chunk* c)
     }
 }
 
-void World::rebuildDirtyChunks(glm::vec3 lightDir) {
+void World::rebuildDirtyChunks(const glm::vec3& lightDir, const glm::dvec3& playerPos) {
     int count = 0;
     int totalPops = 0;
     
@@ -252,11 +256,16 @@ void World::rebuildDirtyChunks(glm::vec3 lightDir) {
 
         if (useThreadedChunks && chunkThreads) {
             // Queue for threaded meshing
-            chunkThreads->queueMeshBuild(cc, chunkPtr, lightDir, this);
+            chunkThreads->queueMeshBuild(cc, chunkPtr, lightDir, this, playerPos);
         } else {
             // Synchronous fallback
+            glm::dvec3 chunkPosVec = {cc.x, cc.y, cc.z};
+            glm::dvec3 diff = playerPos / (double)CHUNK_SIZE - chunkPosVec; // Subtract the chunk space player pos from the chunk pos
+            int squaredDistance = (int)(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
+
             c->rebuildPadding();
-            c->buildGreedyMesh(lightDir);
+            c->rebuildNeighbourLODs();
+            c->buildGreedyMesh(lightDir, squaredDistance);
             
             // Safe auto-unload for EMPTY AIR chunks
             if (c->solidBlockCount == 0 && !unloadedChunks.contains(cc))
@@ -272,6 +281,8 @@ void World::rebuildDirtyChunks(glm::vec3 lightDir) {
             
             if (!wasMeshed && c->hasMesh()) {
                 activeMeshes.push_back(c);
+            } else if (wasMeshed && !c->hasMesh()) {
+                activeMeshes.erase(std::remove(activeMeshes.begin(), activeMeshes.end(), c), activeMeshes.end());
             }
         }
         count++;
@@ -286,7 +297,7 @@ void World::rebuildDirtyChunks(glm::vec3 lightDir) {
  * Draw all chunks with frustum culling.
  * Uses sphere-based frustum tests and relative positioning for precision.
  */
-void World::draw(Shader& shader, const glm::vec3& lightDir, const glm::mat4& VP, const glm::dvec3& cameraPos, float& chunksRendered)
+void World::draw(Shader& shader, const glm::vec3& lightDir, const glm::mat4& VP, const glm::dvec3& cameraPos, int& verticesRendered)
 {        
 	// Precompute chunk bounding sphere radius
     const float chunkRadius = glm::length(glm::vec3(CHUNK_SIZE / 2.0f)) * 1.1f;  // ~9.24, slight padding
@@ -342,7 +353,7 @@ void World::draw(Shader& shader, const glm::vec3& lightDir, const glm::mat4& VP,
         chunk->draw(totalTris, relPos);
     } 
 	//std::cout << "Total Chunks: " << total << ", Rendered: " << passed << ", Tris: " << totalTris << "\n";
-    chunksRendered = (total > 0) ? ((total - passed) / total * 100.f) : 0.f; // precentage of chunks rendered
+    verticesRendered = totalTris * 2; // Each quad = 2 tris, 4 verts => vertices = tris * 2
 }
 
 // ===========================
@@ -791,10 +802,17 @@ void World::finalizeChunkMesh(const ChunkCoord& coord, ChunkMesh&& mesh)
     
     if (!wasMeshed && c->hasMesh()) {
         activeMeshes.push_back(c);
+    } else if (wasMeshed && !c->hasMesh()) {
+        activeMeshes.erase(std::remove(activeMeshes.begin(), activeMeshes.end(), c), activeMeshes.end());
     }
     
     // Note: clearDirty(Dirty_Mesh) is actually handled inside uploadMesh() or we do it here
     c->clearDirty(Dirty_Mesh);
+
+    if (c->meshDirtyDuringBuild) {
+        c->meshDirtyDuringBuild = false;
+        markDirty(c);
+    }
 }
 
 

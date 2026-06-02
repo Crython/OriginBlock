@@ -4,10 +4,37 @@
 #include "glm/glm/glm.hpp"
 #pragma pack(push, 1)
 struct Vertex {
-    // Packed data 1 (32 bits): x(5), y(5), z(5), u(5), v(5), ao(2), unused(5)
-    uint32_t data1; // x(5), y(5), z(5), u(5), v(5), ao_low(4)
-    // Packed data 2 (16 bits): textureLayer(16)
-    uint16_t data2; // texLayer(15), ao_high(1)
+    // Packed data 1 (32 bits):
+    // X(5), Y(5), Z(5), U(5), V(5), Normal(3), AO_low(4)
+    uint32_t data1;
+
+    // Packed data 2 (16 bits):
+    // TextureLayer(15), AO_high(1)
+    uint16_t data2;
+
+    // Packs the passed values into a vertex
+    static Vertex packVertex(glm::vec3 position, glm::vec2 UV, int AO_val, int textureLayer, int normalIndex)
+    {
+        Vertex vert;
+
+        uint32_t x = static_cast<uint32_t>(position.x);
+        uint32_t y = static_cast<uint32_t>(position.y);
+        uint32_t z = static_cast<uint32_t>(position.z);
+
+        uint32_t u = static_cast<uint32_t>(UV.x);
+        uint32_t v = static_cast<uint32_t>(UV.y);
+
+        uint32_t ao = static_cast<uint32_t>(AO_val);
+
+        vert.data1 =
+            ((x & 0x1F) << 0) | ((y & 0x1F) << 5) | ((z & 0x1F) << 10) | ((u & 0x1F) << 15) |
+            ((v & 0x1F) << 20) | ((normalIndex & 0x07) << 25) | ((ao & 0x0F) << 28);
+
+        vert.data2 = ((textureLayer & 0x7FFF)) | (((ao >> 4) & 0x01) << 15);
+
+        return vert;
+    }
+
 }; 
 #pragma pack(pop)
 static_assert(sizeof(Vertex) == 6, "Vertex struct must be exactly 6 bytes");
@@ -21,6 +48,11 @@ struct FaceConfig {
     int u, v;      // the 2D plane axes
     int dir;       // +1 or -1
     glm::ivec3 normal;
+};
+
+struct LOD_Details {
+    int distance;
+    int level;  
 };
 
 constexpr FaceConfig FACES[6] = {

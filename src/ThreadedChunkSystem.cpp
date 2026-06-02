@@ -113,9 +113,14 @@ void ThreadedChunkSystem::processMeshJob(MeshJob& job)
         job.neighborExists,
         job.neighborHiddenSolid
     );
+    chunk->rebuildNeighbourLODsFromSnapshot(
+        job.LODs.getNeighbourLODs(),
+        job.neighborExists
+    );
 
     // Build the mesh (writes to mesh parameter, not chunk's meshCPU)
-    chunk->buildGreedyMeshThreadSafe(job.lightDir, mesh);
+    // Distance was captured at queue time — no main-thread access needed
+    chunk->buildGreedyMeshThreadSafe(job.lightDir, mesh, job.squaredDistance);
 
     if (isCancelled(job.coord)) {
         return; // Chunk was unloaded during meshing
@@ -145,18 +150,24 @@ void ThreadedChunkSystem::queueGeneration(const ChunkCoord& coord, int seed, Wor
     genCV.notify_one();
 }
 
-void ThreadedChunkSystem::queueMeshBuild(const ChunkCoord& coord, std::shared_ptr<Chunk> chunk, const glm::vec3& lightDir, World* world)
+void ThreadedChunkSystem::queueMeshBuild(const ChunkCoord& coord, std::shared_ptr<Chunk> chunk, const glm::vec3& lightDir, World* world, const glm::dvec3& playerPos)
 {
     if (!chunk) return;
 
     // If it was cancelled, un-cancel it now
     removeCancelledCoord(coord);
 
-    // Capture neighbor snapshot for thread-safe padding
+    // Capture all data the worker needs as a snapshot — no main-thread access during processing
     MeshJob job;
     job.coord = coord;
     job.lightDir = lightDir;
     job.chunk = chunk;
+
+    // Compute and store distance now, while we're on the main thread
+    glm::dvec3 chunkPosVec = { (double)coord.x, (double)coord.y, (double)coord.z };
+    glm::dvec3 diff = playerPos / (double)CHUNK_SIZE - chunkPosVec;
+    job.squaredDistance = (int)(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
+
 
     // Get neighbor padding data snapshot
     static const ChunkCoord offsets[6] = {

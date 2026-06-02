@@ -24,7 +24,9 @@ struct MeshJob {
     ChunkCoord coord;
     glm::vec3 lightDir;
     std::shared_ptr<Chunk> chunk; // Keep the chunk alive
+    int squaredDistance;          // Distance from player, captured at queue time
     // Snapshot of neighbor solid data for thread-safe padding
+    NeighbourLODs LODs;
     std::array<PaddingMasks, 6> neighborPadding;
     std::array<bool, 6> neighborExists;
     std::array<bool, 6> neighborHiddenSolid;
@@ -54,7 +56,8 @@ public:
     void queueGeneration(const ChunkCoord& coord, int seed, World* world);
 
     // Queue a chunk for background mesh building
-    void queueMeshBuild(const ChunkCoord& coord, std::shared_ptr<Chunk> chunk, const glm::vec3& lightDir, World* world);
+    // playerPos is captured now (main thread) to compute LOD distance for the worker
+    void queueMeshBuild(const ChunkCoord& coord, std::shared_ptr<Chunk> chunk, const glm::vec3& lightDir, World* world, const glm::dvec3& playerPos);
 
     // Main-thread: process completed generation work
     // Returns number of chunks processed

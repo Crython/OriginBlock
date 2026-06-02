@@ -16,6 +16,7 @@
 #include "Worlds.hpp"
 #include "terrain.hpp"
 
+
 // ===========================
 // MESH GENERATION CONSTANTS
 // ===========================
@@ -200,41 +201,53 @@ inline bool Chunk::neighborSolid(const PaddingMasks& pad, int axis, int dir, int
 {
     if (axis == 0)
     {
-        // X faces -> YZ plane
-        if (x == 0 && dir == -1) return pad.xNeg[y] & (1u << z);
-        if (x == CHUNK_SIZE - 1 && dir == +1) return pad.xPos[y] & (1u << z);
-        return !blocks[x + dir][y][z].isAir();
+        int targetX = x + dir;
+        // If stepping past the negative boundary, check the neighbor mask
+        if (targetX < 0) return pad.xNeg[y] & (1u << z);
+        // If stepping past the positive boundary, check the neighbor mask
+        if (targetX >= CHUNK_SIZE) return pad.xPos[y] & (1u << z);
+
+        return !blocks[targetX][y][z].isAir();
     }
     else if (axis == 1)
     {
-        // Y faces -> XZ plane
-        if (y == 0 && dir == -1) return pad.yNeg[x] & (1u << z);
-        if (y == CHUNK_SIZE - 1 && dir == +1) return pad.yPos[x] & (1u << z);
-        return !blocks[x][y + dir][z].isAir();
+        int targetY = y + dir;  
+        if (targetY < 0) return pad.yNeg[x] & (1u << z);
+        if (targetY >= CHUNK_SIZE) return pad.yPos[x] & (1u << z);
+
+        return !blocks[x][targetY][z].isAir();
     }
     else
     {
-        // Z faces -> XY plane
-        if (z == 0 && dir == -1) return pad.zNeg[x] & (1u << y);
-        if (z == CHUNK_SIZE - 1 && dir == +1) return pad.zPos[x] & (1u << y);
-        return !blocks[x][y][z + dir].isAir();
+        int targetZ = z + dir;
+        if (targetZ < 0) return pad.zNeg[x] & (1u << y);
+        if (targetZ >= CHUNK_SIZE) return pad.zPos[x] & (1u << y);
+
+        return !blocks[x][y][targetZ].isAir();
     }
 }
 
-void Chunk::buildGreedyMesh(const glm::vec3& lightDir)
+void Chunk::buildGreedyMesh(const glm::vec3& lightDir, const int LOD_SquaredDistance)
 {
     clearMesh();
-    buildGreedyMeshInternal(lightDir, meshCPU);
+    Helpers::startTimer("bgmts" + std::to_string(LOD_SquaredDistance)); // add the distance for variation between threads
+    buildGreedyMeshInternal(lightDir, meshCPU, LOD_SquaredDistance);
+    long int dur = Helpers::endTimer("bgmts" + std::to_string(LOD_SquaredDistance));
+    std::cerr << dur << "ns\n";
 }
 
 /**
  * Thread-safe variant of mesh building that outputs to a provided mesh.
  * Can be called from worker threads without accessing World.
  */
-void Chunk::buildGreedyMeshThreadSafe(const glm::vec3& lightDir, ChunkMesh& outMesh)
+void Chunk::buildGreedyMeshThreadSafe(const glm::vec3& lightDir, ChunkMesh& outMesh, const int LOD_SquaredDistance)
 {
     outMesh.clear();
-    buildGreedyMeshInternal(lightDir, outMesh);
+    
+    
+    buildGreedyMeshInternal(lightDir, outMesh, LOD_SquaredDistance);
+    
+
 }
 
 /**
@@ -248,8 +261,33 @@ void Chunk::buildGreedyMeshThreadSafe(const glm::vec3& lightDir, ChunkMesh& outM
  * 4. Greedily merge adjacent exposed faces into rectangular quads
  * 5. Emit vertices with packed position, UV, normal, and lighting data
  */
-void Chunk::buildGreedyMeshInternal(const glm::vec3& lightDir, ChunkMesh& outMesh)
+void Chunk::buildGreedyMeshInternal(const glm::vec3& lightDir, ChunkMesh& outMesh, const int LOD_SquaredDistance)
 {
+    // Get the LODs from the chunks memory
+    NeighbourLODs neighbours = this->LODs;
+
+    // Get the LOD step size based on the distance
+    int LOD_StepSize = 1; // Default fallback
+    if (LOD_SquaredDistance > MAX_LOD_RADIUS_SQUARED) {
+        auto it = std::upper_bound(std::begin(CHUNK_LOD_LEVEL_DISTANCES), std::end(CHUNK_LOD_LEVEL_DISTANCES), LOD_SquaredDistance, [](int value, const auto& entry)
+            {
+                return value < entry.first;
+            }
+        );
+
+        // Only decrement if we aren't already at the very beginning
+        if (it != std::begin(CHUNK_LOD_LEVEL_DISTANCES)) {
+            --it;
+            LOD_StepSize = it->second;
+        }
+        else {
+            LOD_StepSize = CHUNK_LOD_LEVEL_DISTANCES[0].second;
+        }
+    }
+    else {
+        LOD_StepSize = 1; // Chunks close to the player have the highest level of detail (LOD)
+    }
+
     // Reserve space based on typical chunk mesh sizes
     for (int i = 0; i < 6; ++i) {
         outMesh.vertices[i].reserve(MESH_VERTEX_RESERVE / 6);
@@ -257,6 +295,7 @@ void Chunk::buildGreedyMeshInternal(const glm::vec3& lightDir, ChunkMesh& outMes
     }
 
     // Working arrays for greedy meshing
+    const int LOD_ChunkSize = CHUNK_SIZE / LOD_StepSize;
     uint16_t mask[CHUNK_SIZE];              // Bitmask of visible faces in current slice
     uint8_t  type[CHUNK_SIZE][CHUNK_SIZE];  // Block types for texture lookup
     uint8_t  light[CHUNK_SIZE][CHUNK_SIZE]; // Light values for shading
@@ -266,82 +305,113 @@ void Chunk::buildGreedyMeshInternal(const glm::vec3& lightDir, ChunkMesh& outMes
     // Process each of the 6 face directions (±X, ±Y, ±Z)
     for (int face = 0; face < 6; ++face)
     {
-        /*
-		* face 0: +X
-		* face 1: -X
-		* face 2: +Y
-		* face 3: -Y
-		* face 4: +Z
-		* face 5: -Z
-        */
-
-
         const FaceConfig& faceConfig = FACES[face];
         const int axis = faceConfig.axis;
         const int dir = faceConfig.dir;
 
-        // Loop from 0 to CHUNK_SIZE inclusive (17 iterations)
-        // This includes boundary slices where faces between chunks are generated
-        for (int sliceDepth = 0; sliceDepth <= CHUNK_SIZE; ++sliceDepth)
+        int neighborStepSize = 1;
+        std::array<int, 6> nLOD = neighbours.getNeighbourLODs();
+
+        if (axis == 0) neighborStepSize = (dir < 0) ? nLOD[0] : nLOD[1];
+        else if (axis == 1) neighborStepSize = (dir < 0) ? nLOD[2] : nLOD[3];
+        else                neighborStepSize = (dir < 0) ? nLOD[4] : nLOD[5];
+
+        // sliceDepth must also advance by step size
+        for (int sliceDepth = 0; sliceDepth <= CHUNK_SIZE; sliceDepth += LOD_StepSize)
         {
-            // Reset mask
-            for (int i = 0; i < CHUNK_SIZE; ++i) mask[i] = 0;
+            // Reset mask for the compressed chunk size
+            for (int i = 0; i < LOD_ChunkSize; ++i) mask[i] = 0;
 
-            // Build visibility mask
-            for (int i = 0; i < CHUNK_SIZE; ++i)
+            // Loop through the 2D plane using compressed coordinates
+            for (int i = 0; i < LOD_ChunkSize; ++i)
             {
-                for (int j = 0; j < CHUNK_SIZE; ++j)
+                for (int j = 0; j < LOD_ChunkSize; ++j)
                 {
-                    // Determine which block owns this potential face
-                    int blockAlongAxis = (dir > 0) ? (sliceDepth - 1) : sliceDepth;
+                    // Map compressed indices back to actual block space coordinates
+                    int realI = i * LOD_StepSize;
+                    int realJ = j * LOD_StepSize;
 
-                    // Skip invalid blocks
+                    int blockAlongAxis = (dir > 0) ? (sliceDepth - LOD_StepSize) : sliceDepth;
                     if (blockAlongAxis < 0 || blockAlongAxis >= CHUNK_SIZE) continue;
 
-                    int bx, by, bz;
-                    if (axis == 0) { bx = blockAlongAxis; by = i; bz = j; }
-                    else if (axis == 1) { bx = i; by = blockAlongAxis; bz = j; }
-                    else { bx = i; by = j; bz = blockAlongAxis; }
+                    bool cellIsSolid = false;
+                    _Block representativeBlock;
 
-                    const _Block& curr = blocks[bx][by][bz];
-                    if (curr.isAir()) continue;
+                    // Track the exact micro-block coordinates that provide our face
+                    int repX = 0, repY = 0, repZ = 0;
 
-                    // Face is exposed if neighbor in direction is air
-                    if (!neighborSolid(padding, axis, dir, bx, by, bz))
+                    // Scan the inner micro-blocks of this macro LOD cell
+                    for (int di = 0; di < LOD_StepSize; ++di) {
+                        for (int dj = 0; dj < LOD_StepSize; ++dj) {
+                            for (int dk = 0; dk < LOD_StepSize; ++dk) {
+
+                                // Offset coordinates along the respective axes
+                                int bx, by, bz;
+                                if (axis == 0) { bx = blockAlongAxis + dk; by = realI + di; bz = realJ + dj; }
+                                else if (axis == 1) { bx = realI + di; by = blockAlongAxis + dk; bz = realJ + dj; }
+                                else { bx = realI + di; by = realJ + dj; bz = blockAlongAxis + dk; }
+
+                                // Guard boundaries within the chunk array
+                                if (bx >= CHUNK_SIZE || by >= CHUNK_SIZE || bz >= CHUNK_SIZE) continue;
+
+                                const _Block& microBlock = blocks[bx][by][bz];
+                                if (!microBlock.isAir()) {
+                                    cellIsSolid = true;
+                                    representativeBlock = microBlock;
+                                    // Save these coordinates so we cull relative to this exact block face location
+                                    repX = bx;
+                                    repY = by;
+                                    repZ = bz;
+                                }
+                            }
+                        }
+                    }
+
+                    // If the entire downsampled sub-volume cell is empty, there is nothing to render here
+                    if (!cellIsSolid) continue;
+
+                    // neighborSolid check now looks directly relative to the active block face we found
+                    if (!neighborSolid(padding, axis, dir * LOD_StepSize, repX, repY, repZ))
                     {
                         mask[i] |= (1u << j);
-                        type[i][j] = curr.getType();
-                        light[i][j] = curr.getLight() == 0 ? DEFAULT_LIGHT_LEVEL : curr.getLight();
+                        type[i][j] = representativeBlock.getType();
+                        light[i][j] = representativeBlock.getLight() == 0 ? DEFAULT_LIGHT_LEVEL : representativeBlock.getLight();
                     }
                 }
             }
 
-            // GREEDY MERGING - Find maximal rectangular quads
-            for (int uCoord = 0; uCoord < CHUNK_SIZE; ++uCoord)
+            // Greedy Meshing - Find maximal rectangular quads inside the downsampled plane
+            for (int uCoord = 0; uCoord < LOD_ChunkSize; ++uCoord)
             {
                 while (mask[uCoord])
                 {
-                    // Find the first set bit (lowest exposed face)
+                    // Find the first set bit (the lowest exposed face index in this column)
                     int vCoord = std::countr_zero(mask[uCoord]);
 
-                    // Expand in width (u direction) while faces match
-                    int maxPossibleWidth = CHUNK_SIZE - uCoord;
+                    // Expand in width (u direction)
+                    int maxPossibleWidth = LOD_ChunkSize - uCoord;
                     int width = 1;
+
                     while (width < maxPossibleWidth && (mask[uCoord + width] & (1u << vCoord)) && type[uCoord + width][vCoord] == type[uCoord][vCoord])
                     {
                         ++width;
                     }
 
-                    // Expand in height (v direction) while entire rows match
-                    int maxPossibleHeight = CHUNK_SIZE - vCoord;
+                    // Expand in height (v direction)
+                    int maxPossibleHeight = LOD_ChunkSize - vCoord;
                     int height = 1;
                     bool canExpandHeight = false;
+
                     while (height < maxPossibleHeight && !canExpandHeight)
                     {
-                        // Check if entire width can expand by one more row
+                        // Check if the entire width we just found can slide up together by one row
                         for (int widthIdx = 0; widthIdx < width; ++widthIdx)
                         {
-                            if (!(mask[uCoord + widthIdx] & (1u << (vCoord + height))) || type[uCoord + widthIdx][vCoord + height] != type[uCoord][vCoord])
+                            int nextRowV = vCoord + height;
+                            bool bitIsSet = mask[uCoord + widthIdx] & (1u << nextRowV);
+                            bool typeMatches = type[uCoord + widthIdx][nextRowV] == type[uCoord][vCoord];
+
+                            if (!bitIsSet || !typeMatches)
                             {
                                 canExpandHeight = true;
                                 break;
@@ -350,113 +420,89 @@ void Chunk::buildGreedyMeshInternal(const glm::vec3& lightDir, ChunkMesh& outMes
                         if (!canExpandHeight) ++height;
                     }
 
-                    // Clear the merged bits from the mask
+                    // Clear bitmasks for the compiled rectangular block region
                     uint16_t clearBits = ((1u << height) - 1u) << vCoord;
                     for (int widthIdx = 0; widthIdx < width; ++widthIdx)
+                    {
                         mask[uCoord + widthIdx] &= ~clearBits;
+                    }
 
-                    // EMIT QUAD - Create vertices for the merged rectangular face
+                    // Emit quad - Convert grid spaces back to physical metrics
                     float facePos = static_cast<float>(sliceDepth);
+                    float realU = static_cast<float>(uCoord * LOD_StepSize);
+                    float realV = static_cast<float>(vCoord * LOD_StepSize);
+                    float realWidth = static_cast<float>(width * LOD_StepSize);
+                    float realHeight = static_cast<float>(height * LOD_StepSize);
 
                     glm::vec3 origin(0.0f);
                     glm::vec3 du(0.0f);
                     glm::vec3 dv(0.0f);
 
-                    // Calculate quad dimensions based on face orientation
                     if (axis == 0) // X faces (YZ plane)
                     {
-                        origin = glm::vec3(facePos, float(uCoord), float(vCoord));
-                        du = glm::vec3(0.0f, float(width), 0.0f);
-                        dv = glm::vec3(0.0f, 0.0f, float(height));
+                        origin = glm::vec3(facePos, realU, realV);
+                        du = glm::vec3(0.0f, realWidth, 0.0f);
+                        dv = glm::vec3(0.0f, 0.0f, realHeight);
                     }
                     else if (axis == 1) // Y faces (XZ plane)
                     {
-                        origin = glm::vec3(float(uCoord), facePos, float(vCoord));
-                        du = glm::vec3(float(width), 0.0f, 0.0f);
-                        dv = glm::vec3(0.0f, 0.0f, float(height));
+                        origin = glm::vec3(realU, facePos, realV);
+                        du = glm::vec3(realWidth, 0.0f, 0.0f);
+                        dv = glm::vec3(0.0f, 0.0f, realHeight);
                     }
                     else // Z faces (XY plane)
                     {
-                        origin = glm::vec3(float(uCoord), float(vCoord), facePos);
-                        du = glm::vec3(float(width), 0.0f, 0.0f);
-                        dv = glm::vec3(0.0f, float(height), 0.0f);
+                        origin = glm::vec3(realU, realV, facePos);
+                        du = glm::vec3(realWidth, 0.0f, 0.0f);
+                        dv = glm::vec3(0.0f, realHeight, 0.0f);
+                    }
+                    // --- CRACK STITCHING ENGINE ---
+                    // If this quad sits right on a boundary slice, and the neighbor chunk has a lower LOD detail level,
+                    // we pull the quad edges outward into a small skirt to seal the seam.
+                    bool isOnBoundary = (dir > 0 && sliceDepth == CHUNK_SIZE) || (dir < 0 && sliceDepth == 0);
+                    if (isOnBoundary && neighborStepSize > LOD_StepSize)
+                    {
+                        float skirtExtrusion = 0.05f * LOD_StepSize; // Pull out slightly to mask any sub-pixel floating point gaps
+                        origin -= (glm::vec3(FACES[face].normal) * skirtExtrusion);
                     }
 
-                    // Emit quad vertices using packed vertex format
-                    uint32_t base = totalVertexCount;
-                    
-                    // Pack vertex data (position, UV, normal, AO) into compact format
-                    auto packVertex = [&](glm::vec3 pos, glm::vec2 uv, int aoVal, int texLayer) {
-                        Vertex v;
-
-						// Ensure values fit in their bit ranges (5 bits = 0-31)
-                        assert(pos.x >= 0 && pos.x < 32 && "X out of 5-bit range");
-                        assert(pos.y >= 0 && pos.y < 32 && "Y out of 5-bit range");
-                        assert(pos.z >= 0 && pos.z < 32 && "Z out of 5-bit range");
-
-                        uint32_t vx = static_cast<uint32_t>(pos.x);
-                        uint32_t vy = static_cast<uint32_t>(pos.y);
-                        uint32_t vz = static_cast<uint32_t>(pos.z);
-                        uint32_t vu = static_cast<uint32_t>(uv.x);
-                        uint32_t vv = static_cast<uint32_t>(uv.y);
-                        
-                        // Pack data1: X(5), Y(5), Z(5), U(5), V(5), Normal(3), AO_low(4) = 32 bits
-                        v.data1 = (vx & VERTEX_5BIT_MASK) | 
-                                  ((vy & VERTEX_5BIT_MASK) << VERTEX_Y_SHIFT) | 
-                                  ((vz & VERTEX_5BIT_MASK) << VERTEX_Z_SHIFT) | 
-                                  ((vu & VERTEX_5BIT_MASK) << VERTEX_U_SHIFT) | 
-                                  ((vv & VERTEX_5BIT_MASK) << VERTEX_V_SHIFT) |  
-                                  ((uint32_t(aoVal) & VERTEX_4BIT_MASK) << VERTEX_AO_LOW_SHIFT);
-                        
-                        // Pack data2: Texture layer(15 bits) + AO_high(1 bit) = 16 bits
-                        uint16_t aoHigh = static_cast<uint16_t>((aoVal >> 4) & 0x1);
-                        v.data2 = static_cast<uint16_t>(texLayer & 0x7FFF) | (aoHigh << 15);
-                        return v;
-                    };
-
-                    // Calculate UV scale based on quad dimensions
-                    float uScale = (axis == 0) ? float(height) : float(width);
-                    float vScale = (axis == 0) ? float(width) : float(height);
+                    float uScale = (axis == 0) ? realHeight : realWidth;
+                    float vScale = (axis == 0) ? realWidth : realHeight;
                     glm::vec2 scale(uScale, vScale);
 
                     int texLayer = static_cast<int>(BLOCK_FACE_TEXTURE[type[uCoord][vCoord]][face]);
                     int aoVal = static_cast<int>(light[uCoord][vCoord]);
 
-                    // Create 4 vertices for the quad (bottom-left, top-left, top-right, bottom-right)
-                    outMesh.vertices[face].push_back(packVertex(origin, glm::vec2(FACE_UVS[face][0]) * scale, aoVal, texLayer));
-                    outMesh.vertices[face].push_back(packVertex(origin + dv,      glm::vec2(FACE_UVS[face][1]) * scale, aoVal, texLayer));
-                    outMesh.vertices[face].push_back(packVertex(origin + dv + du, glm::vec2(FACE_UVS[face][2]) * scale, aoVal, texLayer));
-                    outMesh.vertices[face].push_back(packVertex(origin + du,      glm::vec2(FACE_UVS[face][3]) * scale, aoVal, texLayer));
+                    uint32_t base = totalVertexCount;
+
+                    Vertex v1 = v1.packVertex(origin, glm::vec2(FACE_UVS[face][0]) * scale, aoVal, texLayer, face);
+                    Vertex v2 = v2.packVertex(origin + dv, glm::vec2(FACE_UVS[face][1]) * scale, aoVal, texLayer, face);
+                    Vertex v3 = v3.packVertex(origin + dv + du, glm::vec2(FACE_UVS[face][2]) * scale, aoVal, texLayer, face);
+                    Vertex v4 = v4.packVertex(origin + du, glm::vec2(FACE_UVS[face][3]) * scale, aoVal, texLayer, face);
+
+                    outMesh.vertices[face].push_back(v1);
+                    outMesh.vertices[face].push_back(v2);
+                    outMesh.vertices[face].push_back(v3);
+                    outMesh.vertices[face].push_back(v4);
 
                     totalVertexCount += 4;
 
-                    // Determine winding order to ensure correct face culling
                     glm::vec3 quadNormal = glm::cross(du, dv);
                     bool flip = glm::dot(quadNormal, glm::vec3(FACES[face].normal)) < 0.0f;
-
-                    if (flip)
-                    {
-                        outMesh.indices[face].push_back(base + 0);
-                        outMesh.indices[face].push_back(base + 1);
-                        outMesh.indices[face].push_back(base + 2);
-                        outMesh.indices[face].push_back(base + 2);
-                        outMesh.indices[face].push_back(base + 3);
-                        outMesh.indices[face].push_back(base + 0);
+                    if (flip) {
+                        outMesh.indices[face].push_back(base + 0); outMesh.indices[face].push_back(base + 1); outMesh.indices[face].push_back(base + 2);
+                        outMesh.indices[face].push_back(base + 2); outMesh.indices[face].push_back(base + 3); outMesh.indices[face].push_back(base + 0);
                     }
-                    else
-                    {
-                        outMesh.indices[face].push_back(base + 0);
-                        outMesh.indices[face].push_back(base + 2);
-                        outMesh.indices[face].push_back(base + 1);
-                        outMesh.indices[face].push_back(base + 0);
-                        outMesh.indices[face].push_back(base + 3);
-                        outMesh.indices[face].push_back(base + 2);
+                    else {
+                        outMesh.indices[face].push_back(base + 0); outMesh.indices[face].push_back(base + 2); outMesh.indices[face].push_back(base + 1);
+                        outMesh.indices[face].push_back(base + 0); outMesh.indices[face].push_back(base + 3); outMesh.indices[face].push_back(base + 2);
                     }
                 }
             }
         }
     }
-    // Shrink to save memory after greedy meshing is complete
+
+    // Shrink to fit allocation minimization (reduces memory footprint by a lot)
     for (int i = 0; i < 6; ++i) {
         outMesh.vertices[i].shrink_to_fit();
         outMesh.indices[i].shrink_to_fit();
@@ -690,6 +736,74 @@ PaddingMasks Chunk::getPaddingDataForNeighbor(int neighborIndex) const
     }
 
     return result;
+}
+
+void Chunk::rebuildNeighbourLODs() {
+
+    World* w = owner;
+
+    ChunkCoord nxp = { chunkX + 1, chunkY, chunkZ };
+    ChunkCoord nxn = { chunkX - 1, chunkY, chunkZ };
+    ChunkCoord nyp = { chunkX, chunkY + 1, chunkZ };
+    ChunkCoord nyn = { chunkX, chunkY - 1, chunkZ };
+    ChunkCoord nzp = { chunkX, chunkY, chunkZ + 1 };
+    ChunkCoord nzn = { chunkX, chunkY, chunkZ - 1 };
+
+    Chunk* cxp = w->getChunk(nxp);
+    Chunk* cxn = w->getChunk(nxn);
+    Chunk* cyp = w->getChunk(nyp);
+    Chunk* cyn = w->getChunk(nyn);
+    Chunk* czp = w->getChunk(nzp);
+    Chunk* czn = w->getChunk(nzn);
+
+    // If neighbor is missing, set the LOD to -1
+    int lxp = (cxp) ? cxp->chunkLOD : -1;
+    int lxn = (cxn) ? cxn->chunkLOD : -1;
+    int lyp = (cyp) ? cyp->chunkLOD : -1;
+    int lyn = (cyn) ? cyn->chunkLOD : -1;
+    int lzp = (czp) ? czp->chunkLOD : -1;
+    int lzn = (czn) ? czn->chunkLOD : -1;
+
+    this->LODs.setNeighbourLODs(lxp, lxn, lyp, lyn, lzp, lzn);
+}
+
+void Chunk::rebuildNeighbourLODsFromSnapshot(const std::array<int, 6>& neighbourLODs, const std::array<bool, 6>& neighborExists)
+{
+    std::array<int, 6> tempLODs;
+
+    World* w = owner;
+
+    ChunkCoord nxp = { chunkX + 1, chunkY, chunkZ };
+    ChunkCoord nxn = { chunkX - 1, chunkY, chunkZ };
+    ChunkCoord nyp = { chunkX, chunkY + 1, chunkZ };
+    ChunkCoord nyn = { chunkX, chunkY - 1, chunkZ };
+    ChunkCoord nzp = { chunkX, chunkY, chunkZ + 1 };
+    ChunkCoord nzn = { chunkX, chunkY, chunkZ - 1 };
+
+    std::vector<Chunk*> chunkPointerVec;
+    chunkPointerVec.resize(6); // resize it imidiatelly to avoid expansive reallocations
+
+    chunkPointerVec.push_back(w->getChunk(nxp));
+    chunkPointerVec.push_back(w->getChunk(nxn));
+    chunkPointerVec.push_back(w->getChunk(nyp));
+    chunkPointerVec.push_back(w->getChunk(nyn));
+    chunkPointerVec.push_back(w->getChunk(nzp));
+    chunkPointerVec.push_back(w->getChunk(nzn));
+
+    for (int i = 0; i < 6; i++) {
+        if (neighborExists[i]) {
+            tempLODs[i] = chunkPointerVec.at(i)->chunkLOD;
+        }
+    }
+
+    this->LODs.setNeighbourLODs(
+        tempLODs[0],
+        tempLODs[1],
+        tempLODs[2],
+        tempLODs[3],
+        tempLODs[4],
+        tempLODs[5]
+    );
 }
 
 /**

@@ -10,8 +10,80 @@
 #include <iostream>
 #include "glfw/glfw3.h"
 #include <bit>
+#include "helpers.hpp"
+#include <string>
 
 using FaceMask = uint16_t[CHUNK_SIZE]; // 16 rows x 16 bits
+
+struct NeighbourLODs
+{
+    uint32_t LODs; // 3-bits per neighbour LOD
+    uint8_t isInvalid;
+
+    std::array<int, 6> getNeighbourLODs() const {
+        int n1 = 0, n2 = 0, n3 = 0, n4 = 0, n5 = 0, n6 = 0;
+
+        // Get the LODs
+        n1 = LODs & 0x7;
+        n2 = (LODs >> 3) & 0x7;
+        n3 = (LODs >> 6) & 0x7;
+        n4 = (LODs >> 9) & 0x7;
+        n5 = (LODs >> 12) & 0x7;    
+        n6 = (LODs >> 15) & 0x7;
+
+
+        // Find out if the LODs are valid
+        bool n1v =  isInvalid & 0x1;
+        bool n2v = (isInvalid & 0x2)  >> 1;
+        bool n3v = (isInvalid & 0x4)  >> 2;
+        bool n4v = (isInvalid & 0x8)  >> 3;
+        bool n5v = (isInvalid & 0x10) >> 4;
+        bool n6v = (isInvalid & 0x20) >> 5;
+
+        // If invalid, return -1
+        if (n1v) n1 = -1;
+        if (n2v) n2 = -1;
+        if (n3v) n3 = -1;
+        if (n4v) n4 = -1;
+        if (n5v) n5 = -1;
+        if (n6v) n6 = -1;
+
+        return { n1, n2, n3, n4, n5, n6 };
+    }
+    void setNeighbourLODs(int n1, int n2, int n3, int n4, int n5, int n6) {
+
+        LODs &= ~((0x7 << 0) | (0x7 << 3) | (0x7 << 6) | (0x7 << 9) | (0x7 << 12) | (0x7 << 15));
+        LODs |= (n1 & 0x7) << 0;
+        LODs |= (n2 & 0x7) << 3;
+        LODs |= (n3 & 0x7) << 6;
+        LODs |= (n4 & 0x7) << 9;
+        LODs |= (n5 & 0x7) << 12;
+        LODs |= (n6 & 0x7) << 15;
+
+
+        // If the LOD is negative, it is not valid
+        isInvalid &= ~(0x1 | 0x2 | 0x4 | 0x8 | 0x10 | 0x20);
+        if (n1 < 0) isInvalid |= 0x1;
+        if (n2 < 0) isInvalid |= 0x2;
+        if (n3 < 0) isInvalid |= 0x4;
+        if (n4 < 0) isInvalid |= 0x8;
+        if (n5 < 0) isInvalid |= 0x10;
+        if (n6 < 0) isInvalid |= 0x20;
+
+    }
+
+    // Set the neigbour's LOD based on a 0-indexed address
+    void setNeighbourLOD(int val, int idx) {
+        // Clear previous 3 bits for this neighbor
+        LODs &= ~(0x7 << (idx * 3));
+        LODs |= (val & 0x7) << (idx * 3);
+
+        // Clear previous validity bit for this neighbor
+        isInvalid &= ~(0x1 << idx);
+        if (val < 0) isInvalid |= (0x1 << idx);
+
+    }
+};
 
 struct PaddingMasks
 {
@@ -280,7 +352,8 @@ public:
 
     // Original methods (for main thread or single-threaded mode)
     void rebuildPadding();
-    void buildGreedyMesh(const glm::vec3& lightDir);
+    void rebuildNeighbourLODs();
+    void buildGreedyMesh(const glm::vec3& lightDir, const int LOD_SquaredDistance);
     void uploadMesh();
     void draw(int& totalTris, const glm::vec3& viewDir);
 
@@ -293,9 +366,10 @@ public:
         const std::array<bool, 6>& neighborExists,
         const std::array<bool, 6>& neighborHiddenSolid
     );
-    
+    void rebuildNeighbourLODsFromSnapshot(const std::array<int, 6>& neighbourLODs, const std::array<bool, 6>& neighborExists);
+
     // Thread-safe mesh building (outputs to provided mesh, not meshCPU)
-    void buildGreedyMeshThreadSafe(const glm::vec3& lightDir, ChunkMesh& outMesh);
+    void buildGreedyMeshThreadSafe(const glm::vec3& lightDir, ChunkMesh& outMesh, const int LOD_SquaredDistance);
     
     // Get padding data for a specific neighbor direction
     PaddingMasks getPaddingDataForNeighbor(int neighborIndex) const;
@@ -323,9 +397,13 @@ public:
     
     // Optimization flag
     bool isInDirtyList = false;
+    bool meshDirtyDuringBuild = false;
     
     // Access blocks for neighbor padding calculation
     const _Block& getBlock(int x, int y, int z) const { return blocks[x][y][z]; }
+
+    NeighbourLODs LODs;
+    int chunkLOD = -1; // default of -1 to mark the "not set"
 
 private:
     void generate(int seed);
@@ -335,7 +413,7 @@ private:
     inline bool neighborSolid(const PaddingMasks& pad, int axis, int dir, int x, int y, int z);
     
     // Internal mesh building helper (used by both buildGreedyMesh and buildGreedyMeshThreadSafe)
-    void buildGreedyMeshInternal(const glm::vec3& lightDir, ChunkMesh& outMesh);
+    void buildGreedyMeshInternal(const glm::vec3& lightDir, ChunkMesh& outMesh, const int LOD_SquaredDistance);
 
 private:
     

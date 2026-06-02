@@ -11,6 +11,7 @@
 #include <sstream>
 #include <vector>
 #include <cstdint>
+#include <chrono>
 
 // Custom headers
 #include "filehandler.hpp"
@@ -22,7 +23,6 @@
 #include "textureManager.hpp"
 #include "commands.hpp"
 #include "TextRenderer.hpp"
-
 
 // SFML headers
 #include "SFML/OpenGL.hpp" // Not needed if using glad
@@ -89,8 +89,8 @@ public:
     bool mouseLocked = false;
 
     // Debug stuff
-    float totalChunksRenderedPercent = 0.f;
     float currentFPS = 0.f;
+    int verticesRendered = 0;
 private:
     GLuint lightingUBO;
 
@@ -107,6 +107,8 @@ private:
     float keyRepeatDelay = 0.4f;    // Initial delay before repeat (seconds)
     float keyRepeatRate = 0.05f;    // How fast it repeats after delay
 
+
+    bool debugStatistics = true; // Enables debug statistics
 };
 
 #endif // VOXELENGINE_HPP

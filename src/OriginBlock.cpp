@@ -1,4 +1,4 @@
-﻿/*
+/*
  * ORIGINBLOCK.CPP
  * 
  * Main engine entry point and game loop implementation.
@@ -475,10 +475,17 @@ void Engine::handleInputs(GLFWwindow* window, float dt)
         // Adjust fog density with scroll
         float scrollY = (float)Input::consumeScrollDY();
         if (scrollY != 0.0f) {
+            /*
             overworld.lightData.fogDensity += scrollY * 0.0005f; // Adjust sensitivity as needed
             if (overworld.lightData.fogDensity < 0.0f) overworld.lightData.fogDensity = 0.0f;
             if (overworld.lightData.fogDensity > 1.0f) overworld.lightData.fogDensity = 1.0f;
             printToChat("Fog Density: " + std::to_string(overworld.lightData.fogDensity), false, true);
+            */
+            playerCamera.FOV -= scrollY;
+            if (playerCamera.FOV < 5.0f) playerCamera.FOV = 5.0f;
+            if (playerCamera.FOV > 120.0f) playerCamera.FOV = 120.0f;
+            printToChat("FOV: " + std::to_string(playerCamera.FOV), false, true);
+
         }
     }
 }
@@ -519,7 +526,7 @@ void Engine::render()
     
     // Draw the overworld
     // Pass rotationOnlyVP for frustum extraction and shader uniforms
-    overworld.draw(voxelShader, lightDir, rotationOnlyVP, playerCamera.position, totalChunksRenderedPercent);
+    overworld.draw(voxelShader, lightDir, rotationOnlyVP, playerCamera.position, verticesRendered);
 
     // ======= UI & HUD RENDERING =======
     glDisable(GL_DEPTH_TEST);
@@ -546,6 +553,13 @@ void Engine::render()
 
     std::string fpsText = "FPS: " + std::to_string((int)currentFPS);
     text->renderText(fpsText, 10.0f, 60.0f, 1.0f, glm::vec3(1.0f, 1.0f, 0.0f)); // Yellow FPS
+
+    if (debugStatistics)
+    {
+        std::string vertText = "Vertiecs: " + std::to_string(verticesRendered);
+        text->renderText(vertText, 10.0f, 90.0f, 1.0f, glm::vec3(1.0f, 0.25f, 0.2f)); // Red debug information
+
+    }
 
     // 3. Draw Chat (Bottom Left)
     float chatY = (float)WINDOW_HEIGHT - 27.5f;
@@ -585,7 +599,7 @@ void Engine::update()
     
     // Load/Unload chunks, Rebuild dirty chunks
     overworld.updateLoadedChunks(playerCamera.position, viewDir, overworld.worldSeed);
-    overworld.rebuildDirtyChunks(lightDir);
+    overworld.rebuildDirtyChunks(lightDir, playerCamera.position);
 }
 
 void Engine::printToChat(const std::string& str, bool mergeWithLastMessage, bool newLine)
