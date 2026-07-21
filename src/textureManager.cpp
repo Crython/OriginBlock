@@ -1,9 +1,7 @@
+#include "pch.h"
 #include "textureManager.hpp"
 #include "stb/stb_image.h"
-#include <vector>
-#include <stdexcept>
-#include <string>
-#include <iostream>
+
 
 static const std::vector<std::string> blockTexturePaths = {
     "assets/textures/blocks/debug.png",      // layer 0

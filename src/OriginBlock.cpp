@@ -17,6 +17,7 @@
  * 4. Draw UI elements (crosshair, HUD)
  */
 
+#include "pch.h"
 #include "OriginBlock.hpp"
 
 // ===========================
@@ -50,12 +51,20 @@ Engine::Engine() :
 {
     text = new TextRenderer(textShader);
     text->setScreenSize(WINDOW_WIDTH, WINDOW_HEIGHT);
-    if (!text->loadFont("C:/Windows/Fonts/consola.ttf", 24)) {
-        // Fallback to another common font if Consolas is missing
-        if (!text->loadFont("C:/Windows/Fonts/arial.ttf", 24)) {
-			std::cerr << "ERROR::ENGINE: Failed to load any font for TextRenderer" << std::endl;
-			std::abort(); // Critical failure if no font can be loaded
+
+	const std::string fontPaths[2] = {"C:/Windows/Fonts/consola.ttf", "C:/Windows/Fonts/arial.ttf"};
+	bool fontLoaded = false;
+
+	// Attempt to load fonts in order of preference
+    for (const std::string path : fontPaths) {
+        if (text->loadFont(path, 24)) {
+            fontLoaded = true;
+            break;
         }
+    }
+    if (!fontLoaded) {
+	    std::cerr << "ERROR::ENGINE: Failed to load any font for TextRenderer" << std::endl;
+		std::abort(); // Critical failure if no font can be loaded
     }
 
     initCrosshair();
@@ -93,7 +102,7 @@ Engine::Engine() :
 		0.025f           // Block Action Delay
 	};
     playerCamera.position = glm::dvec3(0, 80.0f, 0);
-    playerCamera.rotation = glm::vec3(90.0f, 0.0f, 0.0f); // looking toward negative Z
+    playerCamera.rotation = glm::vec3(0.0f, 0.0f, 0.0f); // looking toward positive X
     playerCamera.updateMatrices(WINDOW_WIDTH, WINDOW_HEIGHT);
 
     textures.loadBlockTextures();
@@ -245,6 +254,88 @@ void Engine::handleInputs(GLFWwindow* window, float dt)
                 keyRepeatTimer.erase(key);
             }
         }
+        // Backslash - prefix for special text commands
+        {
+            
+			// Handle the backslash key and the ALT+(NUMPAD9, 9) + (NUMPAD2, 2) combination for backslash
+			{ // Handle GLFW_KEY_BACKSLASH
+                int key = GLFW_KEY_BACKSLASH;
+                bool isDown = Input::keyDown(key);
+                bool wasDown = keyRepeatTimer.count(key) > 0;
+                if (isDown && !wasDown) {
+                    chatInput += '\\';
+                    keyRepeatTimer[key] = keyRepeatDelay;
+                }
+                else if (isDown && wasDown) {
+                    float& timer = keyRepeatTimer[key];
+                    timer -= dt;
+                    if (timer <= 0.0f) {
+                        chatInput += '\\';
+                        timer += keyRepeatRate;
+                    }
+                }
+                else if (!isDown) {
+                    keyRepeatTimer.erase(key);
+                }
+            }
+			{ // Handle ALT+NUMPAD9 + NUMPAD2 for backslash
+				int keyNumpad9 = GLFW_KEY_KP_9;
+				int keyNum9 = GLFW_KEY_9;
+				int keyNumpad2 = GLFW_KEY_KP_2;
+				int keyNum2 = GLFW_KEY_2;
+				int keyAlt = GLFW_KEY_LEFT_ALT; // or GLFW_KEY_RIGHT_ALT, depending on preference
+
+				// Get the current state of the keys
+				bool isDown9 = Input::keyDown(keyNumpad9);
+				bool isDownNum9 = Input::keyDown(keyNum9);
+				bool isDown2 = Input::keyDown(keyNumpad2);
+				bool isDownNum2 = Input::keyDown(keyNum2);
+				bool isAltDown = Input::keyDown(keyAlt);
+
+				// Check if the keys were down in the previous frame
+				bool wasDown9 = keyRepeatTimer.count(keyNumpad9) > 0;
+				bool wasDownNum9 = keyRepeatTimer.count(keyNum9) > 0;
+				bool wasDown2 = keyRepeatTimer.count(keyNumpad2) > 0;
+				bool wasDownNum2 = keyRepeatTimer.count(keyNum2) > 0;
+
+				// Determine if the combination is currently pressed and then handle the input accordingly
+				bool isCombinationDown = (isDown9 || isDownNum9) && (isDown2 || isDownNum2) && isAltDown;
+				if (isCombinationDown && (!wasDown9 || !wasDownNum9) && (!wasDown2 || !wasDownNum2)) {
+					chatInput += '\\';
+					keyRepeatTimer[keyNumpad9] = keyRepeatDelay;
+					keyRepeatTimer[keyNumpad2] = keyRepeatDelay;
+				}
+				// Handle repeat for the combination with both keys down and a wait time of 0.4 seconds before repeating
+				else if (isCombinationDown && (wasDown9 || wasDownNum9) && (wasDown2 || wasDownNum2)) {
+					float& timer9 = keyRepeatTimer[keyNumpad9];
+					float& timer2 = keyRepeatTimer[keyNumpad2];
+					float& timerNum9 = keyRepeatTimer[keyNum9];
+					float& timerNum2 = keyRepeatTimer[keyNum2];
+
+					timer9 -= dt;
+					timer2 -= dt;
+					timerNum9 -= dt;
+					timerNum2 -= dt;
+
+					if (timer9 <= 0.0f || timerNum9 <= 0.0f || timer2 <= 0.0f || timerNum2 <= 0.0f) {
+						chatInput += '\\';
+						timer9 += keyRepeatRate;
+						timer2 += keyRepeatRate;
+						timerNum9 += keyRepeatRate;
+						timerNum2 += keyRepeatRate;
+					}
+				}
+				// Handle key release seperately for both keys to ensure repeat stops when either is released
+				else if (!isCombinationDown) {
+					keyRepeatTimer.erase(keyNumpad9);
+					keyRepeatTimer.erase(keyNumpad2);
+					keyRepeatTimer.erase(keyNum9);
+					keyRepeatTimer.erase(keyNum2);
+				}
+
+            }
+        }
+
 
         // Up/Down arrows to cycle chat history
         {
@@ -457,7 +548,7 @@ void Engine::handleInputs(GLFWwindow* window, float dt)
                     placePos.y < pMin.y || placePos.y > pMax.y ||
                     placePos.z < pMin.z || placePos.z > pMax.z) 
                 {
-                    overworld.placeBlock(hitPos, BlockType::DIRT);
+                    overworld.placeBlock(hitPos, BlockType::DIRECTION); // TODO: add a way to place many different blocks (inventory system)
                 }
 
             }
@@ -472,7 +563,6 @@ void Engine::handleInputs(GLFWwindow* window, float dt)
             playerCamera.blockBreakCooldown = playerCamera.BLOCK_ACTION_DELAY;
         }
 
-        // Adjust fog density with scroll
         float scrollY = (float)Input::consumeScrollDY();
         if (scrollY != 0.0f) {
             /*
@@ -482,8 +572,13 @@ void Engine::handleInputs(GLFWwindow* window, float dt)
             printToChat("Fog Density: " + std::to_string(overworld.lightData.fogDensity), false, true);
             */
             playerCamera.FOV -= scrollY;
-            if (playerCamera.FOV < 5.0f) playerCamera.FOV = 5.0f;
+
+            if (playerCamera.FOV < 0.5f) playerCamera.FOV = 0.5f;
             if (playerCamera.FOV > 120.0f) playerCamera.FOV = 120.0f;
+
+            playerCamera.sensitivity = 0.3f * (0.01111f * playerCamera.FOV); // Scale sensitivity to make looking at different FOVs better
+            playerCamera.updateMatrices(WINDOW_WIDTH, WINDOW_HEIGHT); // Update matrices so the effects would take place
+
             printToChat("FOV: " + std::to_string(playerCamera.FOV), false, true);
 
         }
@@ -542,22 +637,32 @@ void Engine::render()
     // 2. Draw Debug Stats (Top Left)
     
     std::stringstream posStream;
-    posStream << std::fixed << std::setprecision(2) << "Pos: " 
+    posStream << std::fixed << std::setprecision(3) << "Pos: " 
         << playerCamera.position.x << " " 
         << playerCamera.position.y << " " 
         << playerCamera.position.z;
     std::string posText = posStream.str();
 
-    text->renderText(posText, 10.0f, 30.0f, 1.0f, glm::vec3(1.0f));
+    text->renderText(posText, 10.0f, 40.0f, 1.0f, glm::vec3(1.0f), false);
     
+    std::stringstream rotStream;
+    float radToDeg = 180 / PI;
+    rotStream << std::fixed << std::setprecision(3) << "Rot: "
+        << playerCamera.rotation.x * radToDeg << " "
+        << playerCamera.rotation.y * radToDeg << " "
+        << playerCamera.rotation.z * radToDeg;
+    std::string rotText = rotStream.str();
+
+    text->renderText(rotText, 10.0f, 63.0f, 1.0f, glm::vec3(1.0f), false);
+
 
     std::string fpsText = "FPS: " + std::to_string((int)currentFPS);
-    text->renderText(fpsText, 10.0f, 60.0f, 1.0f, glm::vec3(1.0f, 1.0f, 0.0f)); // Yellow FPS
+    text->renderText(fpsText, 10.0f, 100.0f, 1.0f, glm::vec3(1.0f, 1.0f, 0.0f), false); // Yellow FPS
 
     if (debugStatistics)
     {
-        std::string vertText = "Vertiecs: " + std::to_string(verticesRendered);
-        text->renderText(vertText, 10.0f, 90.0f, 1.0f, glm::vec3(1.0f, 0.25f, 0.2f)); // Red debug information
+        std::string vertText = "Verticies: " + std::to_string(verticesRendered);
+        text->renderText(vertText, 10.0f, 130.0f, 1.0f, glm::vec3(1.0f, 0.25f, 0.2f), false); // Red debug information
 
     }
 
@@ -573,12 +678,12 @@ void Engine::render()
     }
 
     if (chatOpen) {
-        text->renderText("> " + chatInput + "_", 10.0f, chatY, 1.0f, glm::vec3(1.0f));
+        text->renderText("> " + chatInput + "_", 10.0f, chatY, 1.0f, glm::vec3(1.0f), false);
         chatY -= lineHeight;
     }
 
     for (int i = chatHistory.size() - 1; i >= 0; --i) {
-        text->renderText(chatHistory[i], 10.0f, chatY, 0.8f, glm::vec3(0.9f));
+        text->renderText(chatHistory[i], 10.0f, chatY, 0.8f, glm::vec3(0.9f), true);
         chatY -= lineHeight;
     }
 
@@ -796,7 +901,7 @@ int main()
         glfwSwapBuffers(window);
         frameCount++;
 
-        // FPS calculation (updates once per second)
+        // FPS calculation (updates ten times per second)
         if (fpsTimer >= 0.1)
         {
             engine.currentFPS = frameCount / static_cast<float>(fpsTimer);

@@ -1,14 +1,6 @@
 #ifndef THREADED_CHUNK_SYSTEM_HPP
 #define THREADED_CHUNK_SYSTEM_HPP
 
-#include <thread>
-#include <mutex>
-#include <condition_variable>
-#include <queue>
-#include <atomic>
-#include <vector>
-#include <functional>
-#include <unordered_set>
 #include "chunkHandler.hpp"
 
 class World;
@@ -24,9 +16,9 @@ struct MeshJob {
     ChunkCoord coord;
     glm::vec3 lightDir;
     std::shared_ptr<Chunk> chunk; // Keep the chunk alive
-    int squaredDistance;          // Distance from player, captured at queue time
+    int LOD;          // Distance from player, captured at queue time
     // Snapshot of neighbor solid data for thread-safe padding
-    NeighbourLODs LODs;
+    NeighbourLODs neighbourLODs;
     std::array<PaddingMasks, 6> neighborPadding;
     std::array<bool, 6> neighborExists;
     std::array<bool, 6> neighborHiddenSolid;

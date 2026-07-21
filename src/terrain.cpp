@@ -1,4 +1,4 @@
-﻿/*
+/*
  * TERRAIN.CPP
  * 
  * Procedural terrain generation system using multi-layered noise and Voronoi diagrams.
@@ -15,9 +15,8 @@
  * 3. Local: Medium frequency (~0.01-0.1) for terrain detail
  * 4. Ridged: High frequency with ridge inversion for mountains
  */
-
+#include "pch.h"
 #include "terrain.hpp"
-#include <cmath>
 
 // ***************************
 // NOISE GENERATION CONSTANTS
@@ -33,7 +32,7 @@ constexpr float WEIRD_FREQUENCY = 0.003f;        // Mountain/weirdness indicator
 
 // Terrain erosion parameters
 constexpr int TALUS = 3;        // max allowed height difference
-constexpr int EROSION_PASSES = 4;
+constexpr int EROSION_PASSES = 2;
 
 // Amplitude/blend weights for noise combination
 constexpr float CONTINENT_WEIGHT = 0.7f;         // Continental noise contribution
@@ -54,9 +53,11 @@ constexpr float BEACH_NOISE_SCALE = 0.06f;       // Coastline variation
 constexpr float VORONOI_JITTER = 0.7f;           // Site position randomization (0-1)
 
 // Limits
-constexpr float MAX_TERRAIN_HEIGHT = 512.0f;        // Maximum terrain height in blocks
+constexpr float MAX_TERRAIN_HEIGHT = 1024.0f;        // Maximum terrain height in blocks
 constexpr float BASE_TERRAIN_HEIGHT = 48.0f;        // Base terrain height in blocks
 constexpr float MIN_TERRAIN_HEIGHT = 32.0f;         // Minimum terrain height in blocks
+constexpr float INV_MAX_MOUNTAIN_ADD = 1.0f / MAX_TERRAIN_HEIGHT;
+
 
 // Terrain foliage parameters
 float TREE_DENSITY_MULTIPLIER = 1.0f;   // Global tree density multiplier
@@ -70,6 +71,7 @@ std::mutex Terrain::cacheMutex;
  * Hash mixing functions for procedural generation.
  * Provides deterministic pseudo-random values from coordinates and seeds.
  */
+ // Applies a 32-bit bit-mixing/avalanche function to maximize entropy in a single integer value.
 inline uint32_t Terrain::mix(uint32_t x) {
     x ^= x >> 16;
     x *= 0x7FEB352D;
@@ -78,6 +80,8 @@ inline uint32_t Terrain::mix(uint32_t x) {
     x ^= x >> 16;
     return x;
 }
+
+// Generates a hash value from 3D coordinates (x, z) and a world seed.
 inline uint32_t Terrain::hash(int x, int z, int seed) {
     uint64_t h = static_cast<uint64_t>(x) * 0x165667B5ULL +
         static_cast<uint64_t>(z) * 0x27D4EB2BULL +
@@ -85,6 +89,8 @@ inline uint32_t Terrain::hash(int x, int z, int seed) {
     h = (h ^ (h >> 13)) * 0x4BF19F5DULL;
     return static_cast<uint32_t>(h ^ (h >> 16));
 }
+
+// Combines chunk coordinates and a world seed to create a unique seed for a specific chunk.
 inline uint32_t Terrain::chunkSeed(const ChunkCoord& c, int seed) {
     uint32_t h = 0;
     h ^= mix(static_cast<uint32_t>(c.x));
@@ -93,9 +99,13 @@ inline uint32_t Terrain::chunkSeed(const ChunkCoord& c, int seed) {
     h ^= mix(static_cast<uint32_t>(seed));
     return mix(h);
 }
+
+// Generates a pseudo-random 32-bit unsigned integer using a base seed and a sequential index.
 inline uint32_t Terrain::rand_u32(uint32_t baseSeed, uint32_t index) {
     return mix(baseSeed + index * 0x9e3779b1);
-} 
+}
+
+// Advances a 32-bit state using an Xorshift PRNG and returns a pseudo-random float between 0.0 and 1.0.
 inline float rand01(uint32_t& state)
 {
     state ^= state << 13;
@@ -103,29 +113,45 @@ inline float rand01(uint32_t& state)
     state ^= state << 5;
     return (state & 0xFFFFFF) / float(0x1000000);
 }
+
+// Performs integer division te get the greatest integer less than or equal to the exact division result (a7 / b3 = 2; a-7 / b3 = -3)
 inline int Terrain::floorDiv(int a, int b) {
     return (a >= 0) ? (a / b) : ((a - b + 1) / b);
 }
+
+// Clamps a floating-point value to ensure it stays within the range [0.0, 1.0].
 inline float clamp01(float v) {
     return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
 }
+
+// Remaps a floating-point value from a standard range of [-1.0, 1.0] to a range of [0.0, 1.0].
 inline float remap01(float v) {
     return v * 0.5f + 0.5f; // [-1,1] -> [0,1]
 }
+
+// Performs smooth Hermite interpolation between 0.0 and 1.0 based on an input progress variable.
 inline float smoothstep(float t) {
     return t * t * (3.0f - 2.0f * t);
 }
+
+// Linearly interpolates between value 'a' and value 'b' based on weight 't'.
 inline float lerp(float a, float b, float t) {
     return a + (b - a) * t;
 }
+
+// Restricts a height delta value to stay within a specified maximum slope range.
 inline float slopeLimit(float delta, float maxSlope) {
     return std::clamp(delta, -maxSlope, maxSlope);
 }
+
+// Calculates the magnitude of the local terrain slope gradient using adjacent height samples.
 inline float slopeMagnitude(float h, float hx, float hz) {
     float dx = h - hx;
     float dz = h - hz;
     return std::sqrt(dx * dx + dz * dz);
 }
+
+// Dynamically flattens/squashes extreme terrain heights that exceed a specified threshold from the center.
 inline float compressHeight(float h, float center, float maxDelta) {
     float d = h - center;
 
@@ -152,7 +178,7 @@ Biome computeBiomeFromClimate(float temp, float moisture, float weird, float con
         else if (temp < 0.3) return Biome::ArticOcean;
 		else return Biome::Ocean;
 	}
-    if (weird > 0.85f) {
+    if (weird > 4.97f) {
         if (moisture < 0.25f && temp > 0.4) return Biome::Badlands;
         else if (weird >= 0.99f && temp >= 0.9f) return Biome::Volcano;
         else return Biome::Mountains;
@@ -238,10 +264,8 @@ float Terrain::openSimplex2(float x, float y, int seedOffset)
 
     // Hash lookup
     auto hash = [&](int px, int py) {
-        uint32_t h = chunkSeed({ px, 0, py }, seedOffset);
-        h = rand_u32(h, 0);
-        return (h >> 24) & 255;  // 8-bit permutation index
-        };
+        return Terrain::hash(px, py, seedOffset) & 255;
+    };
 
     int gi0 = hash(i, j);
     int gi1 = hash(i + i1, j + j1);
@@ -265,55 +289,50 @@ float Terrain::openSimplex2(float x, float y, int seedOffset)
  */
 int Terrain::generateHeight(int worldX, int worldZ, const BiomeParams& biome, int seed)
 {
-    
-    // High peaks, but changes slowly
-    float continentNoise = remap01( openSimplex2(worldX * 0.0008f, worldZ * 0.0008f, seed + 11) );
+    // 1. Cast integers to floats exactly once at the top.
+    // Implicit conversions inside function calls can sometimes add overhead.
+    const float fx = static_cast<float>(worldX);
+    const float fz = static_cast<float>(worldZ);
 
-    // Push oceans down hard
+    // 2. High peaks, but changes slowly
+    float continentNoise = remap01(openSimplex2(fx * 0.0008f, fz * 0.0008f, seed + 11));
     float continent = smoothstep(continentNoise);
-    continent = continent * continent; // bias toward oceans and high mountains
+    continent *= continent;
 
-    // Main terrain shape
-    float baseNoise = remap01( openSimplex2(worldX * 0.004f, worldZ * 0.004f, seed + 23) );
-
+    // 3. Main terrain shape
+    float baseNoise = remap01(openSimplex2(fx * 0.004f, fz * 0.004f, seed + 23));
     float height = biome.baseHeight + baseNoise * biome.amplitude * 0.35f;
     height *= continent;
 
-	// Do extra continent shaping for mountains
+    // 4. Do extra continent shaping for mountains
     if (biome.mountainStrength > 0.0f) {
-        float mountainMask = remap01( openSimplex2(worldX * 0.0015f, worldZ * 0.0015f, seed + 47) );
+        float mountainMask = remap01(openSimplex2(fx * 0.0015f, fz * 0.0015f, seed + 47));
 
-        mountainMask = smoothstep(mountainMask);
-        mountainMask *= biome.mountainStrength;
+        // Fold the multiplication into the smoothstep output immediately
+        mountainMask = smoothstep(mountainMask) * biome.mountainStrength;
 
-        // Hard mountain cap (hardcoded for now)
-        const float maxMountainAdd = MAX_TERRAIN_HEIGHT; // biome.amplitude;
+        // Height-relative taper using multiplication instead of division
+        float relative = clamp01((height - biome.baseHeight) * INV_MAX_MOUNTAIN_ADD);
 
-        // Height-relative taper
-        float relative = (height - biome.baseHeight) / maxMountainAdd;
-        relative = clamp01(relative);
-
-        // Aggressive taper (prevents vertical walls)
+        // Aggressive taper
         float taper = 1.0f - (relative * relative * relative);
 
-        float mountainAdd = mountainMask * maxMountainAdd * taper;
-
-        height += mountainAdd;
+        height += mountainMask * MAX_TERRAIN_HEIGHT * taper;
     }
 
-	// Fine detail (changes every 50 blocks)
-    float detail = openSimplex2(worldX * 0.02f, worldZ * 0.02f, seed + 91) * 2.5f;
+    // 5. Cache the shared frequency coordinate! 
+    // Both 'detail' and 'ridgedNoise' use fx * 0.02f. Calculate it once.
+    const float detailX = fx * 0.02f;
 
-    height += detail;
-
+    // Fine detail
+    height += openSimplex2(detailX, fz * 0.02f, seed + 91) * 2.5f;
     height += BASE_TERRAIN_HEIGHT;
 
-	height += ridgedNoise(worldX * 0.02f, worldZ * 0.019f, seed); // Slight ridged noise for sharpness (goes faster in the Z direction)
+    // Slight ridged noise for sharpness
+    height += ridgedNoise(detailX, fz * 0.019f, seed);
 
-	// Clamp to valid and reasonable range
-    height = (int)std::clamp(height, MIN_TERRAIN_HEIGHT, MAX_TERRAIN_HEIGHT);
-
-    return height;
+    // Clamp to valid and reasonable range
+    return static_cast<int>(std::clamp(height, (float)MIN_TERRAIN_HEIGHT, (float)MAX_TERRAIN_HEIGHT));
 }
 
 
@@ -497,11 +516,17 @@ std::shared_ptr<Terrain::ColumnData> Terrain::getOrGenerateColumn(int chunkX, in
     }
 
     // Step 1: Initial height generation for the entire column
+    int maxHeightFound = 0;
     for (int x = 0; x < CHUNK_SIZE; x++) {
         for (int z = 0; z < CHUNK_SIZE; z++) {
-            data->heightMap[x][z] = (uint16_t)generateHeight(chunkX * CHUNK_SIZE + x, chunkZ * CHUNK_SIZE + z, biomeParams, seed);
+            uint16_t h = (uint16_t)generateHeight(chunkX * CHUNK_SIZE + x, chunkZ * CHUNK_SIZE + z, biomeParams, seed);
+            data->heightMap[x][z] = h;
+
+            maxHeightFound = (h > maxHeightFound) ? h : maxHeightFound; // get the highest pointin that XZ position
         }
     }
+    
+    data->maxHeight = (uint16_t)maxHeightFound;
 
     // Step 2: Apply 4-way slope-aware attenuation
     for (int x = 0; x < CHUNK_SIZE; x++) {
@@ -577,6 +602,13 @@ void Terrain::generate( const ChunkCoord& chunkPos, const int seed, _Block(*bloc
 
     // Retrieve column data (cached shared_ptr)
     auto colData = getOrGenerateColumn(chunkPos.x, chunkPos.z, seed);
+    
+    // The maximum height in this chunk column in chunk-space
+    int maxBlockYInChunkPOS = floorDiv(colData->maxHeight, CHUNK_SIZE);
+
+    // The chunk is above the highest point in the column - chunk will be empty
+    if (chunkPos.y > maxBlockYInChunkPOS + 1) return; // Slight padding because trees aren't included in the max height calculations
+
     
     int worldYHalf = chunkPos.y * CHUNK_SIZE;
 
@@ -808,7 +840,7 @@ float Terrain::fbmContinent(float wx, float wz, int seed, float baseScale)
     float ridgedFreq = baseScale;
     float weight = 1.0f;
 
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 2; i++) {
         float signal = ridgedNoise(static_cast<int>(wx * ridgedFreq), static_cast<int>(wz * ridgedFreq), seed + i * 131);
         signal *= weight;
         weight = std::clamp(signal * 2.0f, 0.0f, 1.0f);
@@ -827,7 +859,7 @@ float Terrain::fbmContinent(float wx, float wz, int seed, float baseScale)
 // Helper: fBm for climate parameters (similar to fbmContinent)
 float Terrain::fbmClimate(float wx, float wz, int seed, float baseFreq)
 {
-    const int octaves = 4;
+    const int octaves = 2;
     const float lacunarity = 2.3f;
     const float gain = 0.51f;
 
@@ -845,7 +877,7 @@ float Terrain::fbmClimate(float wx, float wz, int seed, float baseFreq)
     return sum / maxPossible;
 }
 float Terrain::fbmWarp(float wx, float wz, int seed, float baseFreq) {
-    const int octaves = 4;  // Increased to allow more detail influence
+    const int octaves = 2;  // Increased to allow more detail influence
     const float lacunarity = 2.0f;
     const float gain = 0.7f;  // Elevated from 0.6f for stronger high-frequency contribution
 
@@ -877,7 +909,7 @@ Biome Terrain::assignRandomBiome(int seed) {
     case 7: return Biome::Forest;
     case 8: return Biome::Tundra;
     case 9: return Biome::SnowyTaiga;
-    case 10: return Biome::Mountains;
+    case 10: return Biome::Woodland; //Biome::Mountains; Favor non-mountain biomes for developing
     case 11: return Biome::Badlands;
     case 12: return Biome::Volcano;
     case 13: return Biome::Ocean;  // Fallback to a valid biome
@@ -959,7 +991,7 @@ void Terrain::initVoronoi(int seed, int numSites, float mapSize, float startX, f
         // Weirdness: Ridged noise for mountain/unusual terrain
         float weird_raw = openSimplex2(wsx * WEIRD_SCALE, wsz * WEIRD_SCALE, seed + 3791);
         float weird = ridge(weird_raw);
-        weird = clamp01(weird * 1.1f);
+        weird = clamp01(weird * 1.f);
 
         // Continental scale: Determines if area is land or ocean
         float continent = fbmContinent(wsx, wsz, seed + 5000, CONTINENT_FREQUENCY);

@@ -1,7 +1,5 @@
 #ifndef INPUTS_HPP
 #define INPUTS_HPP
-#include <GLFW/glfw3.h>
-#include <unordered_set>
 
 class Input {
 public:

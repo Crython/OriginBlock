@@ -1,7 +1,7 @@
+#include "pch.h"
+
 #include "commands.hpp"
 #include "OriginBlock.hpp"  // For Engine
-#include <sstream>  // For splitting strings
-#include <algorithm>  // For std::transform
 
 std::map<std::string, size_t> Commands::validCommands = {
     {"position", 1},
@@ -17,7 +17,8 @@ std::map<std::string, size_t> Commands::validCommands = {
     {"tf", 9},
     {"toggleflying", 9},
     {"playerdata", 10}, 
-    {"worlddata", 11}
+    {"worlddata", 11},
+    {"clearchat", 12}
 };
 
 size_t Commands::getCommandID(std::string command, std::vector<std::string>& outArgs) {
@@ -88,8 +89,9 @@ void Commands::executeCommand(size_t ID, const std::vector<std::string>& args, c
                 if (args[i].size() >= 2) {
                     std::string newArg = args[i];
 
-                    if (args[i][0] == '~') {
-                        newArg.erase(0, 1); // Remove '~'
+					// Check for relative position indicators
+                    if (args[i][0] == '~' || args[i][0] == '...') {
+						newArg.erase(0, 1); // Remove '~' or '...'
                         newPos[i] = engine.playerCamera.position[i];
                     }
                     if (!newArg.empty()) { newPos[i] += std::stod(newArg); }
@@ -220,6 +222,14 @@ void Commands::executeCommand(size_t ID, const std::vector<std::string>& args, c
         result += "Loaded Chunks: " + std::to_string(engine.overworld.chunks.size()) + "\n";
         break;
 	}
+    case 12: { // /clearchat
+        if (args.size() != 0) {
+            result += "/clearchat does not take any arguments!";
+            break;
+        }
+        engine.clearChat();
+        break;
+    }
     default:
         result += "Command '" + inCMD + "' is unknown\nIf you need help, type /help";
         break;

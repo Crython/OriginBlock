@@ -1,7 +1,6 @@
 #ifndef TYPES_HPP
 #define TYPES_HPP
 
-#include "glm/glm/glm.hpp"
 #pragma pack(push, 1)
 struct Vertex {
     // Packed data 1 (32 bits):
@@ -55,7 +54,7 @@ struct LOD_Details {
     int level;  
 };
 
-constexpr FaceConfig FACES[6] = {
+inline const FaceConfig FACES[6] = {
     {0, 1, 2, +1, {+1,  0,  0}}, // +X
     {0, 1, 2, -1, {-1,  0,  0}}, // -X
     {1, 0, 2, +1, { 0, +1,  0}}, // +Y

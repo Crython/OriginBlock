@@ -2,10 +2,6 @@
 #ifndef SHADER_HPP
 #define SHADER_HPP
 
-#include <string>
-#include <glm/glm/glm.hpp>
-#include <glad/glad.h>
-
 class Shader {
 public:
     GLuint program = 0;

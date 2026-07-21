@@ -1,8 +1,6 @@
-
+#include "pch.h"
 #include "Shader.hpp"
-#include <fstream>
-#include <sstream>
-#include <iostream>
+
 
 std::string Shader::loadTextFile(const std::string& path) {
     std::ifstream file(path);

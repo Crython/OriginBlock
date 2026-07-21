@@ -15,11 +15,10 @@
  * 3. Chunk unloading: Iterator-based removal of distant chunks
  * 4. Registry pruning: Periodic cleaning of unloaded chunk metadata
  */
-
+#include "pch.h"
 #include "Worlds.hpp"
 #include "ThreadedChunkSystem.hpp"
 #include "terrain.hpp"
-#include <algorithm>
 
 // ===========================
 // CHUNK LOADING CONSTANTS
@@ -194,7 +193,7 @@ void World::reloadAllChunks(bool regenerate)
     activePlan.reset();
     nextPlan.reset();
     planInProgressBar = false;
-    lastUpdatePos = glm::dvec3(1e9);
+    lastUpdatePos = glm::dvec3(1e12);
 
     activeMeshes.clear(); // Clear optimized list
     for (auto& [coord, chunk] : chunks)
@@ -261,12 +260,14 @@ void World::rebuildDirtyChunks(const glm::vec3& lightDir, const glm::dvec3& play
             // Synchronous fallback
             glm::dvec3 chunkPosVec = {cc.x, cc.y, cc.z};
             glm::dvec3 diff = playerPos / (double)CHUNK_SIZE - chunkPosVec; // Subtract the chunk space player pos from the chunk pos
-            int squaredDistance = (int)(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
-
-            c->rebuildPadding();
-            c->rebuildNeighbourLODs();
-            c->buildGreedyMesh(lightDir, squaredDistance);
+            int LOD = c->getLODlevel((int)(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z));
             
+            c->rebuildPadding();
+            c->rebuildNeighbourLODs(playerPos);
+            c->chunkLOD = LOD;
+            c->buildGreedyMesh(lightDir, LOD);
+
+
             // Safe auto-unload for EMPTY AIR chunks
             if (c->solidBlockCount == 0 && !unloadedChunks.contains(cc))
             {
@@ -540,7 +541,7 @@ bool World::isSolidBlockWorld(const glm::ivec3& worldPos)
  * Runs on a background thread to avoid blocking the main thread.
  * Sorts chunks by priority (distance, view direction, ground proximity).
  */
-void buildPlanTask(std::shared_ptr<World::LoadingPlan> plan, glm::vec3 viewDir, uint32_t seed) {
+void World::buildPlanTask(std::shared_ptr<World::LoadingPlan> plan, glm::vec3 viewDir, uint32_t seed) {
     ChunkCoord center = {
         (int)std::floor(plan->playerPos.x / CHUNK_SIZE),
         (int)std::floor(plan->playerPos.y / CHUNK_SIZE),
@@ -552,15 +553,33 @@ void buildPlanTask(std::shared_ptr<World::LoadingPlan> plan, glm::vec3 viewDir, 
     if (glm::dot(viewDir, viewDir) > 0.0001f) viewDir = glm::normalize(viewDir);
 
 	// reserve chunks to avoid reallocations
-	// blocks in a cylinder of radius RENDER_RADIUS and height (POS_RENDER_RADIUS_Y + chunksToBottom + 1)
-    plan->neededOrdered.reserve(137'000);
-    plan->neededSet.reserve(137'000);
+    // Calculate the amount of chunks in the render distance
+    int height = RENDER_RADIUS + POS_RENDER_RADIUS_Y + chunksToBottom + 1;
+    int reserveAmount = (int)(PI * RENDER_RADIUS * RENDER_RADIUS * height) + 10; // Slight padding to counter rounding errors
+
+    plan->neededOrdered.reserve(reserveAmount);
+    plan->neededSet.reserve(reserveAmount);
 
     for (int x = -RENDER_RADIUS; x <= RENDER_RADIUS; ++x) {
         for (int z = -RENDER_RADIUS; z <= RENDER_RADIUS; ++z) {
             if (x * x + z * z > RENDER_RADIUS * RENDER_RADIUS) continue;
             for (int y = -chunksToBottom; y <= POS_RENDER_RADIUS_Y; ++y) {
                 ChunkCoord c{ center.x + x, center.y + y, center.z + z };
+
+                // Calculate the distance from the player to the chunk
+                glm::dvec3 chunkPosVec = { c.x, c.y, c.z };
+                glm::dvec3 diff = plan->playerPos / (double)CHUNK_SIZE - chunkPosVec; // Subtract the chunk space player pos from the chunk pos
+                int squaredDistance = (int)(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
+
+                Chunk* cp = getChunk(c);
+                if (cp) { // Make sure that the chunk is valid
+                    int LOD_Level = cp->getLODlevel(squaredDistance);
+                    if (cp->chunkLOD != LOD_Level) {
+                        plan->needsLODRebuild.push_back(c);
+                        cp->chunkLOD = LOD_Level; // Set the LOD level early to avoid recomputation
+                    }
+                }
+
                 plan->neededOrdered.push_back(c);
                 plan->neededSet.insert(c);
             }
@@ -603,12 +622,14 @@ void buildPlanTask(std::shared_ptr<World::LoadingPlan> plan, glm::vec3 viewDir, 
 /**
  * Update loaded chunks based on player position.
  * 
- * 5-PHASE PROCESS:
+ * 6-PHASE PROCESS:
  * 1. Kick off async plan building if player moved significantly
  * 2. Check if plan is ready and activate it
  * 3. Time-sliced chunk loading (batched per frame)
  * 4. Time-sliced chunk unloading (iterator-based)
  * 5. Periodic pruning of unloaded chunk registry
+ * 6. Rebuilding of some of the LODs for the remaining chunks
+ * 
  */
 void World::updateLoadedChunks(const glm::dvec3& playerPos, glm::vec3 viewDir, const uint32_t seed)
 {
@@ -698,6 +719,27 @@ void World::updateLoadedChunks(const glm::dvec3& playerPos, glm::vec3 viewDir, c
             else ++it;
         }
     }
+
+    // Rebuilding of some of the LODs for the remaining chunks
+    for (const ChunkCoord& cc : activePlan->needsLODRebuild) {
+        auto it = chunks.find(cc);
+        if (it != chunks.end() && it->second) {
+            Chunk* c = it->second.get();
+            c->rebuildNeighbourLODs(playerPos); // Update the LOD's
+            markDirty(c);  // Mark dirty, so the updates would take place
+            
+            // Also mark its neighbors dirty, so their boundaries rebuild with the new LOD
+            for (const glm::ivec3& dir : FACE_DIRS) {
+                ChunkCoord nCoord = { cc.x + dir.x, cc.y + dir.y, cc.z + dir.z };
+                auto nIt = chunks.find(nCoord);
+                if (nIt != chunks.end() && nIt->second) {
+                    nIt->second->rebuildNeighbourLODs(playerPos);
+                    markDirty(nIt->second.get());
+                }
+            }
+        }
+    }
+    activePlan->needsLODRebuild.clear();
 }
 
 

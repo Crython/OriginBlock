@@ -8,12 +8,7 @@
 #include "glm/glm/glm.hpp"
 #include <glm/glm/gtc/matrix_transform.hpp>
 #include "constants.hpp"
-#include <unordered_set>
-#include <deque>
-#include <unordered_map>
-#include <memory>
-#include <iostream>
-#include <mutex>
+
 #include "glfw/glfw3.h"
 #include <cassert>
 
@@ -59,6 +54,7 @@ public:
     using ChunkIter = ChunkMap::iterator;
 
     struct LoadingPlan {
+        std::vector<ChunkCoord> needsLODRebuild;
         std::vector<ChunkCoord> neededOrdered;
         std::unordered_set<ChunkCoord, ChunkCoordHash> neededSet;
         glm::dvec3 playerPos;
@@ -132,7 +128,10 @@ public:
     Chunk* getChunkFromWorldPos(const glm::ivec3& worldPos);
     // Helper to check if an unloaded chunk is Hidden Solid
     bool isChunkHiddenSolid(const ChunkCoord& c);
-    
+
+
+    void buildPlanTask(std::shared_ptr<World::LoadingPlan> plan, glm::vec3 viewDir, uint32_t seed);
+
     // Threaded chunk loading support
     void finalizeChunkLoad(const ChunkCoord& coord, std::shared_ptr<Chunk> chunk);
     void finalizeChunkMesh(const ChunkCoord& coord, ChunkMesh&& mesh);

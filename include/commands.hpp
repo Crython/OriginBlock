@@ -2,10 +2,6 @@
 #define COMMANDS_HPP
 
 #include "Worlds.hpp"
-#include <map>
-#include <string>
-#include <vector>
-#include <cctype>  // For std::tolower
 
 // Forward declaration to avoid circular include
 class Engine;

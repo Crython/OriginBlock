@@ -1,6 +1,6 @@
+#include "pch.h"
 #include "ThreadedChunkSystem.hpp"
 #include "Worlds.hpp"
-#include <algorithm>
 
 ThreadedChunkSystem::ThreadedChunkSystem(size_t numThreads)
 {
@@ -113,14 +113,11 @@ void ThreadedChunkSystem::processMeshJob(MeshJob& job)
         job.neighborExists,
         job.neighborHiddenSolid
     );
-    chunk->rebuildNeighbourLODsFromSnapshot(
-        job.LODs.getNeighbourLODs(),
-        job.neighborExists
-    );
+    // chunk->rebuildNeighbourLODsFromSnapshot(job.neighborExists, job.neighbourLODs);
 
     // Build the mesh (writes to mesh parameter, not chunk's meshCPU)
     // Distance was captured at queue time — no main-thread access needed
-    chunk->buildGreedyMeshThreadSafe(job.lightDir, mesh, job.squaredDistance);
+    chunk->buildGreedyMeshThreadSafe(job.lightDir, mesh, job.LOD);
 
     if (isCancelled(job.coord)) {
         return; // Chunk was unloaded during meshing
@@ -163,11 +160,8 @@ void ThreadedChunkSystem::queueMeshBuild(const ChunkCoord& coord, std::shared_pt
     job.lightDir = lightDir;
     job.chunk = chunk;
 
-    // Compute and store distance now, while we're on the main thread
-    glm::dvec3 chunkPosVec = { (double)coord.x, (double)coord.y, (double)coord.z };
-    glm::dvec3 diff = playerPos / (double)CHUNK_SIZE - chunkPosVec;
-    job.squaredDistance = (int)(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
-
+    // Compute and store the LOD of this chunk
+    job.LOD = chunk->getLODlevel(chunk->getDistanceFromPlayerSquared(playerPos, coord));
 
     // Get neighbor padding data snapshot
     static const ChunkCoord offsets[6] = {
@@ -176,6 +170,8 @@ void ThreadedChunkSystem::queueMeshBuild(const ChunkCoord& coord, std::shared_pt
         {0, 0, 1}, {0, 0, -1}
     };
 
+    std::array<int, 6> tempLODs;
+    // Loop through all neighbours this chunk has
     for (int i = 0; i < 6; ++i) {
         ChunkCoord neighborCoord = {
             coord.x + offsets[i].x,
@@ -189,11 +185,25 @@ void ThreadedChunkSystem::queueMeshBuild(const ChunkCoord& coord, std::shared_pt
         
         if (neighbor) {
             job.neighborPadding[i] = neighbor->getPaddingDataForNeighbor(i);
+            tempLODs[i] = chunk->getLODlevel(chunk->getDistanceFromPlayerSquared(playerPos, neighborCoord));
         } else {
             // Zero-initialize if no neighbor
             std::memset(&job.neighborPadding[i], 0, sizeof(PaddingMasks));
         }
     }
+
+    
+    chunk->LODs.setNeighbourLODs(
+        tempLODs[0],
+        tempLODs[1],
+        tempLODs[2],
+        tempLODs[3],
+        tempLODs[4],
+        tempLODs[5]
+    );
+    
+
+    job.neighbourLODs = chunk->LODs;
 
     std::lock_guard<std::mutex> lock(meshMutex);
     

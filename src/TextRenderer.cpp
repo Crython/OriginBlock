@@ -1,8 +1,9 @@
+#include "pch.h"
+
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "TextRenderer.hpp"
 #include <glm/glm/gtc/matrix_transform.hpp>
-#include <iostream>
-#include <fstream>
+
 
 TextRenderer::TextRenderer(Shader& shader) : shader(shader), screenWidth(1920), screenHeight(1080) {
     initRenderData();
@@ -116,7 +117,7 @@ void TextRenderer::setScreenSize(int width, int height) {
     screenHeight = height;
 }
 
-void TextRenderer::renderText(std::string text, float x, float y, float scale, glm::vec3 color) {
+void TextRenderer::renderText(std::string text, float x, float y, float scale, glm::vec3 color, bool useEscapeSequences ) {
     shader.bind();
     shader.setVec3("uTextColor", color);
     shader.setInt("uText", 0);
@@ -133,7 +134,83 @@ void TextRenderer::renderText(std::string text, float x, float y, float scale, g
     // We treat 'y' as the baseline for the text
     float baselineY = y;
 
+    float maxH = 0.0f;
+    float lineHeight = 30.0f * scale;
+    if (!characters.empty()) {
+        for (const auto& pair : characters) {
+            if (pair.second.size.y > maxH) maxH = pair.second.size.y;
+        }
+        lineHeight = maxH * 1.2f * scale;
+    }
+
+    // Pre-calculate number of lines to adjust for screen overflow
+    int numLines = 1;
+    bool escCount = false;
     for (char c : text) {
+        if (useEscapeSequences && !escCount && c == '\\') {
+            escCount = true;
+            continue;
+        }
+        if (useEscapeSequences && escCount) {
+            escCount = false;
+            if (c == 'n') numLines++;
+        } else if (c == '\n') {
+            numLines++;
+        }
+    }
+
+    float expectedBottom = baselineY + (numLines - 1) * lineHeight + maxH * scale;
+    if (expectedBottom > screenHeight) {
+        baselineY -= (expectedBottom - screenHeight);
+    }
+
+    std::vector<float> xPosHistory;
+    xPosHistory.push_back(currentX);
+
+    bool escaped = false;
+
+    for (char c : text) {
+        if (useEscapeSequences && !escaped && c == '\\') {
+            escaped = true;
+            continue;
+        }
+
+        if (useEscapeSequences && escaped) {
+            escaped = false;
+			if (c == 'n') c = '\n';       // newline
+			else if (c == 'r') c = '\r';  // carriage return
+			else if (c == 't') c = '\t';  // tab
+			else if (c == 'b') c = '\b';  // backspace
+			else if (c == '\\') c = '\\'; // write a literal backslash
+			else currentX -= 0;           // No change to currentX for unrecognized escape sequences
+        }
+
+        if (c == '\n') {
+            baselineY += lineHeight;
+            float spaceAdvance = characters.count(' ') ? characters[' '].advance * scale : 20.0f * scale;
+            currentX = x + spaceAdvance * 2.0f;
+            xPosHistory.push_back(currentX);
+            continue;
+        }
+        if (c == '\r') {
+            currentX = x;
+            xPosHistory.push_back(currentX);
+            continue;
+        }
+        if (c == '\t') {
+            float spaceAdvance = characters.count(' ') ? characters[' '].advance * scale : 20.0f * scale;
+            currentX += spaceAdvance * 4.0f;
+            xPosHistory.push_back(currentX);
+            continue;
+        }
+        if (c == '\b') {
+            if (xPosHistory.size() > 1) {
+                xPosHistory.pop_back();
+                currentX = xPosHistory.back();
+            }
+            continue;
+        }
+
         if (characters.find(c) == characters.end()) {
             continue;
         }
@@ -142,6 +219,7 @@ void TextRenderer::renderText(std::string text, float x, float y, float scale, g
 
         if (ch.textureID == 0) { // Skip characters with no bitmap (like space)
             currentX += ch.advance * scale;
+            xPosHistory.push_back(currentX);
             continue;
         }
 
@@ -170,6 +248,7 @@ void TextRenderer::renderText(std::string text, float x, float y, float scale, g
         glDrawArrays(GL_TRIANGLES, 0, 6);
         
         currentX += ch.advance * scale;
+        xPosHistory.push_back(currentX);
     }
 
     glBindVertexArray(0);

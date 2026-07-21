@@ -1,9 +1,6 @@
 #ifndef TEXTURE_MANAGER_HPP
 #define TEXTURE_MANAGER_HPP
 #include "texture.hpp"
-#include <glm/glm/glm.hpp>
-
-
 
 class TextureManager {
 public:

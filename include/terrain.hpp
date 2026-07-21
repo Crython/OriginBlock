@@ -1,16 +1,8 @@
 #ifndef TERRAIN_HPP
 #define TERRAIN_HPP
 
-#include <cstdint>
 #include "chunkHandler.hpp"
-#include <vector>
-#include <array>
 #include "stb/stb_image_write.h"
-#include <algorithm>
-#include <chrono>
-#include <mutex>
-#include <unordered_map>
-#include <memory>
 
 enum class Biome : uint8_t {
 	None = 0,
@@ -78,6 +70,7 @@ private:
 
     struct ColumnData {
         uint16_t heightMap[CHUNK_SIZE][CHUNK_SIZE];
+        uint16_t maxHeight;
         Biome biome;
     };
 

@@ -1,8 +1,7 @@
+#include "pch.h"
 #include "texture.hpp"
 #include <stb/stb_image.h>
-#include <iostream>
-#include <stdexcept>
-#include <filesystem>
+
 
 Texture::Texture(const std::string& path) {
     int channels;

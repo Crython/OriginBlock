@@ -5,13 +5,7 @@
 #define VOXELENGINE_HPP
 
 
-// Standard headers
-#include <iostream>
-#include <fstream>
-#include <sstream>
-#include <vector>
-#include <cstdint>
-#include <chrono>
+
 
 // Custom headers
 #include "filehandler.hpp"
@@ -23,30 +17,6 @@
 #include "textureManager.hpp"
 #include "commands.hpp"
 #include "TextRenderer.hpp"
-
-// SFML headers
-#include "SFML/OpenGL.hpp" // Not needed if using glad
-#include "SFML/System.hpp"
-#include <SFML/Audio.hpp>     // Sounds, music
-#include <SFML/Network.hpp>   // Optional
-#include <SFML/Graphics/Image.hpp> // For loading textures
-// No window. GLFW is used for windowing instead
-
-// GLM headers
-#include "glm/glm/glm.hpp"
-#include <glm/glm/gtc/matrix_transform.hpp>
-#include <glm/glm/gtc/type_ptr.hpp>
-#include <glm/glm/gtx/norm.hpp>  // For normalize, length
-#include <glm/glm/gtx/exterior_product.hpp>
-
-// Glad header
-#include <glad/glad.h>
-#include <GLFW/glfw3.h>
-
-// TODO: Reference additional headers your program requires here.
-
-
-
 
 class Engine
 {
@@ -86,6 +56,7 @@ public:
     void update(); // Update logic
 
     void printToChat(const std::string& str, bool mergeWithLastMessage, bool newLine);
+	void clearChat() { chatHistory.clear(); chatOpen = false; chatInput = ""; } // Completely clear chat history and close chat
     bool mouseLocked = false;
 
     // Debug stuff
@@ -107,7 +78,7 @@ private:
     float keyRepeatDelay = 0.4f;    // Initial delay before repeat (seconds)
     float keyRepeatRate = 0.05f;    // How fast it repeats after delay
 
-
+    float lastSensitivity = 0.f;
     bool debugStatistics = true; // Enables debug statistics
 };
 

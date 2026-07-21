@@ -1,5 +1,6 @@
+#include "pch.h"
+
 #include "inputs.hpp"
-#include <iostream>
 
 GLFWwindow* Input::window = nullptr;
 

@@ -4,14 +4,8 @@
 
 #include "types.hpp"
 #include "constants.hpp"
-#include <vector>
-#include <array>
 #include "textureManager.hpp"
-#include <iostream>
-#include "glfw/glfw3.h"
-#include <bit>
 #include "helpers.hpp"
-#include <string>
 
 using FaceMask = uint16_t[CHUNK_SIZE]; // 16 rows x 16 bits
 
@@ -84,6 +78,13 @@ struct NeighbourLODs
 
     }
 };
+
+// A lightweight structure to track type frequencies on the stack
+struct BlockCount {
+    int typeId = -1;
+    int count = 0;
+};
+
 
 struct PaddingMasks
 {
@@ -352,8 +353,8 @@ public:
 
     // Original methods (for main thread or single-threaded mode)
     void rebuildPadding();
-    void rebuildNeighbourLODs();
-    void buildGreedyMesh(const glm::vec3& lightDir, const int LOD_SquaredDistance);
+    void rebuildNeighbourLODs(const glm::dvec3& playerPos);
+    void buildGreedyMesh(const glm::vec3& lightDir, const int LOD);
     void uploadMesh();
     void draw(int& totalTris, const glm::vec3& viewDir);
 
@@ -366,10 +367,12 @@ public:
         const std::array<bool, 6>& neighborExists,
         const std::array<bool, 6>& neighborHiddenSolid
     );
-    void rebuildNeighbourLODsFromSnapshot(const std::array<int, 6>& neighbourLODs, const std::array<bool, 6>& neighborExists);
+    void rebuildNeighbourLODsFromSnapshot(const std::array<bool, 6>& neighborExists, const NeighbourLODs& neighborLODs);
+    void rebuildBlockMipmaps();
+
 
     // Thread-safe mesh building (outputs to provided mesh, not meshCPU)
-    void buildGreedyMeshThreadSafe(const glm::vec3& lightDir, ChunkMesh& outMesh, const int LOD_SquaredDistance);
+    void buildGreedyMeshThreadSafe(const glm::vec3& lightDir, ChunkMesh& outMesh, const int LOD);
     
     // Get padding data for a specific neighbor direction
     PaddingMasks getPaddingDataForNeighbor(int neighborIndex) const;
@@ -385,6 +388,10 @@ public:
     int getSolidBlockCount() const { return solidBlockCount; }
     bool isAirOnly() const { return solidBlockCount == 0; }
     bool hasMesh() const;
+    inline bool isPaddingSolid(const PaddingMasks& pad, int axis, int dir, int i, int j, int LOD_StepSize) const;
+
+    int getDistanceFromPlayerSquared(const glm::dvec3& playerPos, const ChunkCoord& coord);
+    int getLODlevel(const int& LOD_DistanceSquared);
 
     uint8_t getDirtyFlags() const;
     bool isDirty(DirtyFlags df) const;
@@ -398,7 +405,11 @@ public:
     // Optimization flag
     bool isInDirtyList = false;
     bool meshDirtyDuringBuild = false;
-    
+
+    // Debug flag to force drawing all faces (disable occlusion culling)
+    bool forceAllFaces = false; // Set to false for normal occlusion
+
+
     // Access blocks for neighbor padding calculation
     const _Block& getBlock(int x, int y, int z) const { return blocks[x][y][z]; }
 
@@ -409,11 +420,12 @@ private:
     void generate(int seed);
     void setPosition(ChunkCoord c);
     void countSolidBlocks();
+    _Block GetMostFrequentBlock(const _Block cluster[8]);
     inline bool isSolidSafe(const Chunk* c, int x, int y, int z);
     inline bool neighborSolid(const PaddingMasks& pad, int axis, int dir, int x, int y, int z);
     
     // Internal mesh building helper (used by both buildGreedyMesh and buildGreedyMeshThreadSafe)
-    void buildGreedyMeshInternal(const glm::vec3& lightDir, ChunkMesh& outMesh, const int LOD_SquaredDistance);
+    void buildGreedyMeshInternal(const glm::vec3& lightDir, ChunkMesh& outMesh, const int LOD);
 
 private:
     
@@ -421,8 +433,15 @@ private:
     
     // Efficient padding for neighboring chunks
     PaddingMasks padding;
-    // Array to store the blocks of the chunks
-    _Block blocks[CHUNK_SIZE][CHUNK_SIZE][CHUNK_SIZE];
+
+    // Array to store the blocks of the chunks (LOD1)
+    _Block blocks[CHUNK_SIZE][CHUNK_SIZE][CHUNK_SIZE];                 // (16x16x16)
+    // Smaller mipmaps of the original chunk
+    _Block blocksLOD2[CHUNK_SIZE / 2][CHUNK_SIZE / 2][CHUNK_SIZE / 2]; // (8x8x8)
+    _Block blocksLOD3[CHUNK_SIZE / 4][CHUNK_SIZE / 4][CHUNK_SIZE / 4]; // (4x4x4)
+    _Block blocksLOD4[CHUNK_SIZE / 8][CHUNK_SIZE / 8][CHUNK_SIZE / 8]; // (2x2x2)
+    _Block blockLOD5;                                                  // (1x1x1)
+
 
     uint8_t dirtyFlags = Dirty_None;
 

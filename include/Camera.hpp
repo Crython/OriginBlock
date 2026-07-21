@@ -1,10 +1,7 @@
 ﻿#ifndef CAMERA_HPP
 #define CAMERA_HPP
 
-#include "glm/glm/glm.hpp"
-#include <glm/glm/gtc/matrix_transform.hpp>
 #include "constants.hpp"
-#include <algorithm>
 #include "types.hpp"
 
 struct Camera {
@@ -17,14 +14,14 @@ struct Camera {
     // 3. High precision position of the camera in world space
     glm::dvec3 position = glm::vec3(0.0);
 
-    // 4. Rotation of the camera in floats to avoid errors
+    // 4. Rotation of the camera in floats to avoid errors // Stored in radians. Multiply by 180/PI to get degrees
 	glm::vec3 rotation = glm::vec3(0.0f); // yaw(x), pitch(y), roll(z)
 
     glm::dvec3 getForwardVectorMovement() const {
         float cp = std::cos(rotation.y);
         return glm::dvec3{
             cp * sin(rotation.x),
-            0,
+            0,  
             -cp * cos(rotation.x)   // NEGATE Z
         };
 	}
