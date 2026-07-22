@@ -17,6 +17,7 @@
  */
 #include "pch.h"
 #include "terrain.hpp"
+#include "voronoi.hpp"
 
 // ***************************
 // NOISE GENERATION CONSTANTS
@@ -62,8 +63,6 @@ constexpr float INV_MAX_MOUNTAIN_ADD = 1.0f / MAX_TERRAIN_HEIGHT;
 // Terrain foliage parameters
 float TREE_DENSITY_MULTIPLIER = 1.0f;   // Global tree density multiplier
 
-std::vector<VoronoiSite> Terrain::voronoiSites;
-VoronoiSpatialGrid Terrain::voronoiGrid;
 std::unordered_map<uint64_t, std::shared_ptr<Terrain::ColumnData>> Terrain::columnCache;
 std::mutex Terrain::cacheMutex;
 
@@ -266,8 +265,8 @@ std::shared_ptr<Terrain::ColumnData> Terrain::getOrGenerateColumn(int chunkX, in
     // Generate if not found - allocate on heap immediately
     auto data = std::make_shared<ColumnData>();
     
-    Biome::BiomeType chunkBiome = sampleBiomeCell(chunkX, chunkZ, seed);
-	Biome::BiomeParams biomeParams = sampleBlendedBiomeParams(chunkX * CHUNK_SIZE + CHUNK_SIZE / 2, chunkZ * CHUNK_SIZE + CHUNK_SIZE / 2, seed);
+    Biome::BiomeType chunkBiome = Voronoi::sampleBiomeCell(chunkX, chunkZ, seed);
+	Biome::BiomeParams biomeParams = Voronoi::sampleBlendedBiomeParams(chunkX * CHUNK_SIZE + CHUNK_SIZE / 2, chunkZ * CHUNK_SIZE + CHUNK_SIZE / 2, seed);
     data->biome = chunkBiome; 
 
     // Retrieve neighbors from cache to handle slope-aware attenuation across chunk boundaries
@@ -432,7 +431,7 @@ void Terrain::placeTreesInChunk( int chunkX, int chunkY, int chunkZ, int chunkSi
             // Calculate tree count for this neighbor chunk
             int centerWorldX = nx * chunkSize + chunkSize / 2;
             int centerWorldZ = nz * chunkSize + chunkSize / 2;
-            Biome::BiomeParams biome = sampleBlendedBiomeParams(centerWorldX, centerWorldZ, seed);
+            Biome::BiomeParams biome = Voronoi::sampleBlendedBiomeParams(centerWorldX, centerWorldZ, seed);
 
             if (biome.treeDensity <= 0.0f) continue;
 
@@ -546,43 +545,6 @@ uint32_t Terrain::setRandSeed(void* instancePtr) {
     return combined;
 }
 
-/*
- * Sample blended biome parameters at a world position.
- * Performs bilinear interpolation between 4 neighboring biome cells.
- */
-Biome::BiomeParams Terrain::sampleBlendedBiomeParams(int worldX, int worldZ, int seed)
-{
-    int bx = Noise::floorDiv(worldX, BIOME_CELL_SIZE);
-    int bz = Noise::floorDiv(worldZ, BIOME_CELL_SIZE);
-
-    float fx = float(worldX - bx * BIOME_CELL_SIZE) / BIOME_CELL_SIZE;
-    float fz = float(worldZ - bz * BIOME_CELL_SIZE) / BIOME_CELL_SIZE;
-
-    Biome::BiomeType b00 = sampleBiomeCell(bx, bz, seed);
-    Biome::BiomeType b10 = sampleBiomeCell(bx + 1, bz, seed);
-    Biome::BiomeType b01 = sampleBiomeCell(bx, bz + 1, seed);
-    Biome::BiomeType b11 = sampleBiomeCell(bx + 1, bz + 1, seed);
-
-    Biome::BiomeParams p00 = Biome::getParams(b00);
-    Biome::BiomeParams p10 = Biome::getParams(b10);
-    Biome::BiomeParams p01 = Biome::getParams(b01);
-    Biome::BiomeParams p11 = Biome::getParams(b11);
-
-    // Bilinear interpolation weights
-    float w00 = (1 - fx) * (1 - fz);
-    float w10 = fx * (1 - fz);
-    float w01 = (1 - fx) * fz;
-    float w11 = fx * fz;
-
-	Biome::BiomeParams result;
-	result.amplitude = p00.amplitude * w00 + p10.amplitude * w10 + p01.amplitude * w01 + p11.amplitude * w11;
-	result.baseHeight = p00.baseHeight * w00 + p10.baseHeight * w10 + p01.baseHeight * w01 + p11.baseHeight * w11;
-	result.mountainStrength = p00.mountainStrength * w00 + p10.mountainStrength * w10 + p01.mountainStrength * w01 + p11.mountainStrength * w11;
-	result.treeDensity = p00.treeDensity * w00 + p10.treeDensity * w10 + p01.treeDensity * w01 + p11.treeDensity * w11;
-    result.treeLine = p00.treeLine * w00 + p10.treeLine * w10 + p01.treeLine * w01 + p11.treeLine * w11;
-
-	return result;
-}
 
 Biome::BiomeType Terrain::assignRandomBiome(int seed) {
     int rnd = static_cast<int>(Noise::heightNoise2D(static_cast<float>(seed), 0.0f, seed) * 14);  // Limit to 14 for defined cases
@@ -605,168 +567,12 @@ Biome::BiomeType Terrain::assignRandomBiome(int seed) {
     }
 }
 
-/**
- * Initialize the Voronoi cell system for biome distribution.
- * Creates a spatial grid of biome sites, each with climate-based characteristics.
- * 
- * @param seed World generation seed
- * @param numSites Number of Voronoi sites to create
- * @param mapSize Total size of the area to cover
- * @param startX, startZ World coordinates of the area's origin
- */
-void Terrain::initVoronoi(int seed, int numSites, float mapSize, float startX, float startZ) {
-    voronoiSites.clear();
-    voronoiGrid.clear();
-
-    voronoiGrid.startX = startX;
-    voronoiGrid.startZ = startZ;
-    voronoiGrid.mapSize = mapSize;
-
-    int gridSize = static_cast<int>(std::sqrt(static_cast<float>(numSites)));
-    if (gridSize < 1) gridSize = 1;
-    float spacing = mapSize / static_cast<float>(gridSize);
-    
-    // Grid settings
-    voronoiGrid.cellSize = spacing * 1.5f; // Slightly larger than spacing for overlap
-    voronoiGrid.cols = static_cast<int>(std::ceil(mapSize / voronoiGrid.cellSize)) + 1;
-    voronoiGrid.rows = static_cast<int>(std::ceil(mapSize / voronoiGrid.cellSize)) + 1;
-    voronoiGrid.grid.resize(static_cast<size_t>(voronoiGrid.cols) * voronoiGrid.rows);
-
-    for (int i = 0; i < numSites; ++i) {
-        int row = i / gridSize;
-        int col = i % gridSize;
-        float baseSx = startX + col * spacing;
-        float baseSz = startZ + row * spacing;
-
-        // Add jitter to avoid perfectly regular grid
-        float jitterAmp = spacing * VORONOI_JITTER;
-        float sx = baseSx + Noise::heightNoise2D(baseSx, baseSz, seed + 1000) * jitterAmp - jitterAmp * 0.5f;
-        float sz = baseSz + Noise::heightNoise2D(baseSx * 1.1f, baseSz * 0.9f, seed + 1001) * jitterAmp - jitterAmp * 0.5f;
-
-        // Warp sites slightly for less robotic feel
-        float wsx = sx, wsz = sz;
-        Noise::domainWarp(wsx, wsz, seed + 555);
-
-        // Assign climate parameters using multi-frequency noise
-        const float MAIN_CLIMATE_SCALE = CLIMATE_FREQUENCY;
-        const float WEIRD_SCALE = WEIRD_FREQUENCY;
-
-        // Temperature: Varies with latitude + noise
-        float temp = 0.2f + 0.3f * std::sin(wsz * 0.0005f) + 0.58f * (Noise::openSimplex2(wsx * MAIN_CLIMATE_SCALE, wsz * MAIN_CLIMATE_SCALE, seed + 731) * 0.5f + 0.5f);
-        temp = clamp01(temp);
-
-        // Moisture: Independent noise layer
-        float moisture = Noise::openSimplex2(wsx * MAIN_CLIMATE_SCALE * 1.35f, wsz * MAIN_CLIMATE_SCALE * 1.35f, seed + 1249) * 0.5f + 0.5f;
-        moisture = clamp01(moisture);
-
-        // Weirdness: Ridged noise for mountain/unusual terrain
-        float weird_raw = Noise::openSimplex2(wsx * WEIRD_SCALE, wsz * WEIRD_SCALE, seed + 3791);
-        float weird = Noise::ridge(weird_raw);
-        weird = clamp01(weird * 1.f);
-
-        // Continental scale: Determines if area is land or ocean
-        float continent = Noise::fbmContinent(wsx, wsz, seed + 5000, CONTINENT_FREQUENCY);
-        continent = clamp01(continent * CONTINENT_SCALE);
-
-        Biome::BiomeType siteBiome = Biome::computeBiomeFromClimate(temp, moisture, weird, continent);
-        size_t siteIdx = voronoiSites.size();
-        voronoiSites.push_back({ sx, sz, siteBiome });
-
-        // Add to grid
-        int gx = static_cast<int>((sx - startX) / voronoiGrid.cellSize);
-        int gz = static_cast<int>((sz - startZ) / voronoiGrid.cellSize);
-        if (gx >= 0 && gx < voronoiGrid.cols && gz >= 0 && gz < voronoiGrid.rows) {
-            voronoiGrid.grid[gz * voronoiGrid.cols + gx].push_back(siteIdx);
-        }
-    }
-	std::cout << "Initialized " << voronoiSites.size() << " Voronoi biome sites." << std::endl;
-}
 
 /**
  * Sample the biome at a specific cell position.
  * Uses domain-warped Voronoi nearest-neighbor with jittered boundaries.
  * Ocean biomes override Voronoi cells below the continent threshold.
  */
-Biome::BiomeType Terrain::sampleBiomeCell(int bx, int bz, int seed) {
-    float x = static_cast<float>(bx);
-    float z = static_cast<float>(bz);
-
-    // Apply domain warping to bridge Voronoi cell boundaries naturally
-    float wx = x, wz = z;
-    Noise::domainWarp(wx, wz, seed);
-
-    // Find nearest Voronoi site using spatial grid
-    float minDist = std::numeric_limits<float>::max();
-    Biome::BiomeType nearestBiome = Biome::BiomeType::None;
-
-    int gx = static_cast<int>((x - voronoiGrid.startX) / voronoiGrid.cellSize);
-    int gz = static_cast<int>((z - voronoiGrid.startZ) / voronoiGrid.cellSize);
-
-    // Add high-frequency jitter for "jagged" boundaries
-    float jx = wx + Noise::openSimplex2(wx * 0.15f, wz * 0.15f, seed + 123) * 3.5f;
-    float jz = wz + Noise::openSimplex2(wx * 0.15f + 7.7f, wz * 0.15f + 3.3f, seed + 456) * 3.5f;
-
-    // Check current cell and neighbors
-    for (int dz = -2; dz <= 2; ++dz) { // Increased search radius slightly for safety with jitter
-        for (int dx = -2; dx <= 2; ++dx) {
-            int ngx = gx + dx;
-            int ngz = gz + dz;
-            if (ngx >= 0 && ngx < voronoiGrid.cols && ngz >= 0 && ngz < voronoiGrid.rows) {
-                const auto& cellSites = voronoiGrid.grid[ngz * voronoiGrid.cols + ngx];
-                for (size_t siteIdx : cellSites) {
-                    const auto& site = voronoiSites[siteIdx];
-                    
-                    float ddx = jx - site.x;
-                    float ddz = jz - site.z;
-                    float dist = ddx * ddx + ddz * ddz;
-                    if (dist < minDist) {
-                        minDist = dist;
-                        nearestBiome = site.biome;
-                    }
-                }
-            }
-        }
-    }
-
-    // Fallback if no sites found in proximity
-    if (nearestBiome == Biome::BiomeType::None) {
-        minDist = std::numeric_limits<float>::max();
-        for (const auto& site : voronoiSites) {
-            float ddx = wx - site.x;
-            float ddz = wz - site.z;
-            float dist = ddx * ddx + ddz * ddz;
-            if (dist < minDist) {
-                minDist = dist;
-                nearestBiome = site.biome;
-            }
-        }
-    }
-
-    // Global climate parameters for ocean detection
-    float continent = Noise::fbmContinent(wx, wz, seed + 5000, CONTINENT_FREQUENCY);
-    continent = clamp01(continent * CONTINENT_SCALE);
-
-    const float CLIMATE_SCALE = CLIMATE_FREQUENCY;
-    float temp = 0.2f + 0.3f * std::sin(wz * 0.0005f) + 0.58f * (Noise::openSimplex2(wx * CLIMATE_SCALE, wz * CLIMATE_SCALE, seed + 731) * 0.5f + 0.5f);
-    temp = clamp01(temp);
-
-    // Dynamic threshold for more natural, noisy coastlines
-    float beachNoise = 0.5f; // openSimplex2(wx * 0.1f, wz * 0.1f, seed + 888)* BEACH_NOISE_SCALE;
-    float dynamicThreshold = OCEAN_THRESHOLD + beachNoise;
-
-    // Decision logic using overrides (e.g. Ocean)
-    if (continent < dynamicThreshold) { 
-        if (temp > 0.7f) return Biome::BiomeType::WarmOcean;
-        else if (temp < 0.3f) return Biome::BiomeType::ArticOcean;
-        else return Biome::BiomeType::Ocean;
-    }
-
-    // Otherwise, use the nearest Voronoi-assigned biome
-    return nearestBiome;
-}
-
-
-// Gamma function: x^gamma
 float gammaCurve(float x, float gamma) {
     return std::pow(x, gamma);
 }
@@ -918,12 +724,12 @@ void Terrain::writeChunkBiomemapPNG(int startChunkX, int startChunkZ, int chunkC
 	int minSize = std::min(chunkCountX, chunkCountZ);
     auto startTime = std::chrono::high_resolution_clock::now();
 
-	initVoronoi(seed, static_cast<int>(minSize / 4.f), minSize, static_cast<float>(startChunkX), static_cast<float>(startChunkZ));
+	Voronoi::initVoronoi(seed, static_cast<int>(minSize / 4.f), minSize, static_cast<float>(startChunkX), static_cast<float>(startChunkZ));
     for (int cz = 0; cz < chunkCountZ; ++cz) {
         for (int cx = 0; cx < chunkCountX; ++cx) {
 			int bx = startChunkX + cx;
             int bz = startChunkZ + cz;
-			biomes[cz * width + cx] = sampleBiomeCell(bx, bz, seed);
+			biomes[cz * width + cx] = Voronoi::sampleBiomeCell(bx, bz, seed);
         }   
     }
     auto endTime = std::chrono::high_resolution_clock::now();

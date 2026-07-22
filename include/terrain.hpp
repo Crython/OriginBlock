@@ -5,25 +5,10 @@
 #include "stb/stb_image_write.h"
 #include "noise.hpp"
 #include "biome.hpp"
+#include "voronoi.hpp"
 
 
-struct VoronoiSite {
-    float x, z;
-    Biome::BiomeType biome;  // Assigned biome for the site
-};
 
-struct VoronoiSpatialGrid {
-    std::vector<std::vector<size_t>> grid; // Indices into voronoiSites
-    float startX, startZ;
-    float mapSize;
-    float cellSize;
-    int cols, rows;
-
-    void clear() {
-        grid.clear();
-        cols = rows = 0;
-    }
-};
 
 // Fix: Use correct 3D array type for blocks parameter
 class Terrain {
@@ -45,14 +30,15 @@ public:
     
     static void writeChunkHeightmapPNG(int startChunkX, int startChunkZ, int chunkCountX, int chunkCountZ, int chunkSize, int seed, const char* filename);
     static void writeChunkBiomemapPNG(int startChunkX, int startChunkZ, int chunkCountX, int chunkCountZ, int chunkSize, int seed, const char* filename);
+	static void initVoronoi(int seed, int numSites, float mapSize, float startX, float startZ) {
+		Voronoi::initVoronoi(seed, numSites, mapSize, startX, startZ);
+	}
 
-    static void initVoronoi(int seed, int numSites, float mapSize, float startX, float startZ);
 
     static std::shared_ptr<ColumnData> getOrGenerateColumn(int x, int z, int seed);
 
 private:
-    static std::vector<VoronoiSite> voronoiSites;
-    static VoronoiSpatialGrid voronoiGrid;
+
 
     
 
@@ -61,8 +47,7 @@ private:
     static int generateHeight(int worldX, int worldZ, const Biome::BiomeParams& biome, int seed);
     static void capRidges(ColumnData& heightmap, ColumnData* west = nullptr, ColumnData* east = nullptr, ColumnData* north = nullptr, ColumnData* south = nullptr);
     static void thermalErosion(ColumnData& heightmap, ColumnData* west = nullptr, ColumnData* east = nullptr, ColumnData* north = nullptr, ColumnData* south = nullptr);
-    static Biome::BiomeType sampleBiomeCell(int bx, int bz, int seed);
-    static Biome::BiomeParams sampleBlendedBiomeParams(int worldX, int worldZ, int seed);
+
     static float terrace(float h, float step, float strength);
     static void placeTreesInChunk(int chunkX, int chunkY, int chunkZ, int chunkSize, int seed, _Block(*blocks)[CHUNK_SIZE][CHUNK_SIZE], const std::shared_ptr<ColumnData>& colData);
     static void placeTreeAt(int x, int y, int z, uint32_t& rng, _Block(*blocks)[CHUNK_SIZE][CHUNK_SIZE]);
