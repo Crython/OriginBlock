@@ -4,36 +4,12 @@
 #include "chunkHandler.hpp"
 #include "stb/stb_image_write.h"
 #include "noise.hpp"
+#include "biome.hpp"
 
-enum class Biome : uint8_t {
-	None = 0,
-    Ocean,
-	WarmOcean,
-	ArticOcean,
-    Desert,
-    Savanna,
-    Jungle,
-    Plains,
-    Woodland,
-	Forest,
-    Tundra, 
-    SnowyTaiga,
-    Mountains,
-    Badlands,
-    Volcano
-};
-struct BiomeParams {
-    float baseHeight;
-    float amplitude;
-    float mountainStrength;
-
-    float treeDensity;   // trees per chunk (avg)
-    float treeLine;      // max height where trees grow
-};
 
 struct VoronoiSite {
     float x, z;
-    Biome biome;  // Assigned biome for the site
+    Biome::BiomeType biome;  // Assigned biome for the site
 };
 
 struct VoronoiSpatialGrid {
@@ -52,13 +28,12 @@ struct VoronoiSpatialGrid {
 // Fix: Use correct 3D array type for blocks parameter
 class Terrain {
 public:
-	// Static instance of Noise for terrain generation
-	Noise noise;
+	Biome biome;
 
     struct ColumnData {
         uint16_t heightMap[CHUNK_SIZE][CHUNK_SIZE];
         uint16_t maxHeight;
-        Biome biome;
+        Biome::BiomeType biome;
     };
 
     // Use pointer to 3D array of _Block with CHUNK_SIZE in each dimension
@@ -81,14 +56,13 @@ private:
 
     
 
-    static Biome assignRandomBiome(int seed);
+    static Biome::BiomeType assignRandomBiome(int seed);
     static uint32_t chunkSeed(const ChunkCoord& c, int seed);
-    static int generateHeight(int worldX, int worldZ, const BiomeParams& biome, int seed);
+    static int generateHeight(int worldX, int worldZ, const Biome::BiomeParams& biome, int seed);
     static void capRidges(ColumnData& heightmap, ColumnData* west = nullptr, ColumnData* east = nullptr, ColumnData* north = nullptr, ColumnData* south = nullptr);
     static void thermalErosion(ColumnData& heightmap, ColumnData* west = nullptr, ColumnData* east = nullptr, ColumnData* north = nullptr, ColumnData* south = nullptr);
-    static Biome sampleBiomeCell(int bx, int bz, int seed);
-    static BiomeParams sampleBlendedBiomeParams(int worldX, int worldZ, int seed);
-    static BiomeParams getParams(Biome b);
+    static Biome::BiomeType sampleBiomeCell(int bx, int bz, int seed);
+    static Biome::BiomeParams sampleBlendedBiomeParams(int worldX, int worldZ, int seed);
     static float terrace(float h, float step, float strength);
     static void placeTreesInChunk(int chunkX, int chunkY, int chunkZ, int chunkSize, int seed, _Block(*blocks)[CHUNK_SIZE][CHUNK_SIZE], const std::shared_ptr<ColumnData>& colData);
     static void placeTreeAt(int x, int y, int z, uint32_t& rng, _Block(*blocks)[CHUNK_SIZE][CHUNK_SIZE]);

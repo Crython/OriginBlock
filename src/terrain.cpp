@@ -110,45 +110,13 @@ inline float compressHeight(float h, float center, float maxDelta) {
     return center + sign * (maxDelta + excess);
 }
 
-/*
- * Determine biome from climate parameters.
- * Uses temperature, moisture, weirdness (mountains), and continent values.
- */
-Biome computeBiomeFromClimate(float temp, float moisture, float weird, float continent) {
-    if (continent < OCEAN_THRESHOLD) {
-        if (temp > 0.5f) return Biome::WarmOcean;
-        else if (temp < 0.3) return Biome::ArticOcean;
-		else return Biome::Ocean;
-	}
-    if (weird > 4.97f) {
-        if (moisture < 0.25f && temp > 0.4) return Biome::Badlands;
-        else if (weird >= 0.99f && temp >= 0.9f) return Biome::Volcano;
-        else return Biome::Mountains;
-    }
-    if (temp > 0.7f) {
-        if (moisture < 0.4f) return Biome::Desert;
-        else if (moisture < 0.6f) return Biome::Savanna;
-        else return Biome::Jungle;
-    }
-    else if (temp > 0.3f && temp < 0.7f) {
-        if (moisture < 0.3f) return Biome::Plains;
-        else if (moisture < 0.55f) return Biome::Woodland;
-        else return Biome::Forest;
-    }
-    else {  // temp <= 0.3f
-        if (moisture < 0.5f) return Biome::Tundra;
-        else return Biome::SnowyTaiga;
-    }
-	return Biome::None;  // Fallback, shows when something goes wrong
-}
-
 
 
 /*
  * Generate terrain height at a world coordinate.
  * Combines biome parameters with multi-octave noise for varied terrain.
  */
-int Terrain::generateHeight(int worldX, int worldZ, const BiomeParams& biome, int seed)
+int Terrain::generateHeight(int worldX, int worldZ, const Biome::BiomeParams& biome, int seed)
 {
     // 1. Cast integers to floats exactly once at the top.
     // Implicit conversions inside function calls can sometimes add overhead.
@@ -298,8 +266,8 @@ std::shared_ptr<Terrain::ColumnData> Terrain::getOrGenerateColumn(int chunkX, in
     // Generate if not found - allocate on heap immediately
     auto data = std::make_shared<ColumnData>();
     
-    Biome chunkBiome = sampleBiomeCell(chunkX, chunkZ, seed);
-	BiomeParams biomeParams = sampleBlendedBiomeParams(chunkX * CHUNK_SIZE + CHUNK_SIZE / 2, chunkZ * CHUNK_SIZE + CHUNK_SIZE / 2, seed);
+    Biome::BiomeType chunkBiome = sampleBiomeCell(chunkX, chunkZ, seed);
+	Biome::BiomeParams biomeParams = sampleBlendedBiomeParams(chunkX * CHUNK_SIZE + CHUNK_SIZE / 2, chunkZ * CHUNK_SIZE + CHUNK_SIZE / 2, seed);
     data->biome = chunkBiome; 
 
     // Retrieve neighbors from cache to handle slope-aware attenuation across chunk boundaries
@@ -417,7 +385,7 @@ void Terrain::generate( const ChunkCoord& chunkPos, const int seed, _Block(*bloc
         for (int z = 0; z < CHUNK_SIZE; z++) {
 
             int height = colData->heightMap[x][z];
-            Biome biome = colData->biome;
+            Biome::BiomeType biome = colData->biome;
 
             int worldX = chunkPos.x * CHUNK_SIZE + x;
             int worldZ = chunkPos.z * CHUNK_SIZE + z; // Still needed for hash calculation below
@@ -429,9 +397,9 @@ void Terrain::generate( const ChunkCoord& chunkPos, const int seed, _Block(*bloc
                 if (worldY < height - 2)
                     b.setValues(BlockType::STONE, 0, 0);      // stone
                 else if (worldY < height - 1)
-                    b.setValues(((int)biome <= 3 ? BlockType::SAND : (biome == Biome::Mountains ? BlockType::STONE : BlockType::DIRT)), 0, 0);      // dirt
+                    b.setValues(((int)biome <= 3 ? BlockType::SAND : (biome == Biome::BiomeType::Mountains ? BlockType::STONE : BlockType::DIRT)), 0, 0);      // dirt
                 else if (worldY == height - 1)
-                    b.setValues(((int)biome <= 3 ? BlockType::SAND : (biome == Biome::Mountains ? BlockType::STONE : BlockType::GRASS)), 0, 0);      // grass or sand
+                    b.setValues(((int)biome <= 3 ? BlockType::SAND : (biome == Biome::BiomeType::Mountains ? BlockType::STONE : BlockType::GRASS)), 0, 0);      // grass or sand
                 else
                     b.setValues(BlockType::AIR, 0, 0);      // air
             }
@@ -464,7 +432,7 @@ void Terrain::placeTreesInChunk( int chunkX, int chunkY, int chunkZ, int chunkSi
             // Calculate tree count for this neighbor chunk
             int centerWorldX = nx * chunkSize + chunkSize / 2;
             int centerWorldZ = nz * chunkSize + chunkSize / 2;
-            BiomeParams biome = sampleBlendedBiomeParams(centerWorldX, centerWorldZ, seed);
+            Biome::BiomeParams biome = sampleBlendedBiomeParams(centerWorldX, centerWorldZ, seed);
 
             if (biome.treeDensity <= 0.0f) continue;
 
@@ -582,7 +550,7 @@ uint32_t Terrain::setRandSeed(void* instancePtr) {
  * Sample blended biome parameters at a world position.
  * Performs bilinear interpolation between 4 neighboring biome cells.
  */
-BiomeParams Terrain::sampleBlendedBiomeParams(int worldX, int worldZ, int seed)
+Biome::BiomeParams Terrain::sampleBlendedBiomeParams(int worldX, int worldZ, int seed)
 {
     int bx = Noise::floorDiv(worldX, BIOME_CELL_SIZE);
     int bz = Noise::floorDiv(worldZ, BIOME_CELL_SIZE);
@@ -590,15 +558,15 @@ BiomeParams Terrain::sampleBlendedBiomeParams(int worldX, int worldZ, int seed)
     float fx = float(worldX - bx * BIOME_CELL_SIZE) / BIOME_CELL_SIZE;
     float fz = float(worldZ - bz * BIOME_CELL_SIZE) / BIOME_CELL_SIZE;
 
-    Biome b00 = sampleBiomeCell(bx, bz, seed);
-    Biome b10 = sampleBiomeCell(bx + 1, bz, seed);
-    Biome b01 = sampleBiomeCell(bx, bz + 1, seed);
-    Biome b11 = sampleBiomeCell(bx + 1, bz + 1, seed);
+    Biome::BiomeType b00 = sampleBiomeCell(bx, bz, seed);
+    Biome::BiomeType b10 = sampleBiomeCell(bx + 1, bz, seed);
+    Biome::BiomeType b01 = sampleBiomeCell(bx, bz + 1, seed);
+    Biome::BiomeType b11 = sampleBiomeCell(bx + 1, bz + 1, seed);
 
-    BiomeParams p00 = getParams(b00);
-    BiomeParams p10 = getParams(b10);
-    BiomeParams p01 = getParams(b01);
-    BiomeParams p11 = getParams(b11);
+    Biome::BiomeParams p00 = Biome::getParams(b00);
+    Biome::BiomeParams p10 = Biome::getParams(b10);
+    Biome::BiomeParams p01 = Biome::getParams(b01);
+    Biome::BiomeParams p11 = Biome::getParams(b11);
 
     // Bilinear interpolation weights
     float w00 = (1 - fx) * (1 - fz);
@@ -606,7 +574,7 @@ BiomeParams Terrain::sampleBlendedBiomeParams(int worldX, int worldZ, int seed)
     float w01 = (1 - fx) * fz;
     float w11 = fx * fz;
 
-	BiomeParams result;
+	Biome::BiomeParams result;
 	result.amplitude = p00.amplitude * w00 + p10.amplitude * w10 + p01.amplitude * w01 + p11.amplitude * w11;
 	result.baseHeight = p00.baseHeight * w00 + p10.baseHeight * w10 + p01.baseHeight * w01 + p11.baseHeight * w11;
 	result.mountainStrength = p00.mountainStrength * w00 + p10.mountainStrength * w10 + p01.mountainStrength * w01 + p11.mountainStrength * w11;
@@ -616,24 +584,24 @@ BiomeParams Terrain::sampleBlendedBiomeParams(int worldX, int worldZ, int seed)
 	return result;
 }
 
-Biome Terrain::assignRandomBiome(int seed) {
+Biome::BiomeType Terrain::assignRandomBiome(int seed) {
     int rnd = static_cast<int>(Noise::heightNoise2D(static_cast<float>(seed), 0.0f, seed) * 14);  // Limit to 14 for defined cases
     switch (rnd % 14) {
-    case 0: return Biome::WarmOcean;  // Optional: Bias some to ocean if needed
-    case 1: return Biome::ArticOcean;
-    case 2: return Biome::Desert;
-    case 3: return Biome::Savanna;
-    case 4: return Biome::Jungle;
-    case 5: return Biome::Plains;
-    case 6: return Biome::Woodland;
-    case 7: return Biome::Forest;
-    case 8: return Biome::Tundra;
-    case 9: return Biome::SnowyTaiga;
-    case 10: return Biome::Woodland; //Biome::Mountains; Favor non-mountain biomes for developing
-    case 11: return Biome::Badlands;
-    case 12: return Biome::Volcano;
-    case 13: return Biome::Ocean;  // Fallback to a valid biome
-    default: return Biome::Plains;  // Safety net, though %14 should prevent this
+    case 0: return Biome::BiomeType::WarmOcean;  // Optional: Bias some to ocean if needed
+    case 1: return Biome::BiomeType::ArticOcean;
+    case 2: return Biome::BiomeType::Desert;
+    case 3: return Biome::BiomeType::Savanna;
+    case 4: return Biome::BiomeType::Jungle;
+    case 5: return Biome::BiomeType::Plains;
+    case 6: return Biome::BiomeType::Woodland;
+    case 7: return Biome::BiomeType::Forest;
+    case 8: return Biome::BiomeType::Tundra;
+    case 9: return Biome::BiomeType::SnowyTaiga;
+    case 10: return Biome::BiomeType::Woodland; //Biome::BiomeType::Mountains; Favor non-mountain biomes for developing
+    case 11: return Biome::BiomeType::Badlands;
+    case 12: return Biome::BiomeType::Volcano;
+    case 13: return Biome::BiomeType::Ocean;  // Fallback to a valid biome
+    default: return Biome::BiomeType::Plains;  // Safety net, though %14 should prevent this
     }
 }
 
@@ -700,7 +668,7 @@ void Terrain::initVoronoi(int seed, int numSites, float mapSize, float startX, f
         float continent = Noise::fbmContinent(wsx, wsz, seed + 5000, CONTINENT_FREQUENCY);
         continent = clamp01(continent * CONTINENT_SCALE);
 
-        Biome siteBiome = computeBiomeFromClimate(temp, moisture, weird, continent);
+        Biome::BiomeType siteBiome = Biome::computeBiomeFromClimate(temp, moisture, weird, continent);
         size_t siteIdx = voronoiSites.size();
         voronoiSites.push_back({ sx, sz, siteBiome });
 
@@ -719,7 +687,7 @@ void Terrain::initVoronoi(int seed, int numSites, float mapSize, float startX, f
  * Uses domain-warped Voronoi nearest-neighbor with jittered boundaries.
  * Ocean biomes override Voronoi cells below the continent threshold.
  */
-Biome Terrain::sampleBiomeCell(int bx, int bz, int seed) {
+Biome::BiomeType Terrain::sampleBiomeCell(int bx, int bz, int seed) {
     float x = static_cast<float>(bx);
     float z = static_cast<float>(bz);
 
@@ -729,7 +697,7 @@ Biome Terrain::sampleBiomeCell(int bx, int bz, int seed) {
 
     // Find nearest Voronoi site using spatial grid
     float minDist = std::numeric_limits<float>::max();
-    Biome nearestBiome = Biome::None;
+    Biome::BiomeType nearestBiome = Biome::BiomeType::None;
 
     int gx = static_cast<int>((x - voronoiGrid.startX) / voronoiGrid.cellSize);
     int gz = static_cast<int>((z - voronoiGrid.startZ) / voronoiGrid.cellSize);
@@ -761,7 +729,7 @@ Biome Terrain::sampleBiomeCell(int bx, int bz, int seed) {
     }
 
     // Fallback if no sites found in proximity
-    if (nearestBiome == Biome::None) {
+    if (nearestBiome == Biome::BiomeType::None) {
         minDist = std::numeric_limits<float>::max();
         for (const auto& site : voronoiSites) {
             float ddx = wx - site.x;
@@ -788,69 +756,15 @@ Biome Terrain::sampleBiomeCell(int bx, int bz, int seed) {
 
     // Decision logic using overrides (e.g. Ocean)
     if (continent < dynamicThreshold) { 
-        if (temp > 0.7f) return Biome::WarmOcean;
-        else if (temp < 0.3f) return Biome::ArticOcean;
-        else return Biome::Ocean;
+        if (temp > 0.7f) return Biome::BiomeType::WarmOcean;
+        else if (temp < 0.3f) return Biome::BiomeType::ArticOcean;
+        else return Biome::BiomeType::Ocean;
     }
 
     // Otherwise, use the nearest Voronoi-assigned biome
     return nearestBiome;
 }
 
-/**
- * Get biome parameters (base height, amplitude, mountain strength).
- * These control terrain generation differently for each biome.
- */
-BiomeParams Terrain::getParams(Biome b)
-{
-	// Parameters: baseHeight, amplitude, mountainStrength, treeDensity, treeMaxBaseHeight
-    switch (b) {
-    case Biome::Ocean:
-        return { 8.0f, 4.0f, 0.0f, 0.0f, 0.0f };
-
-    case Biome::WarmOcean:
-        return { 12.0f, 5.0f, 0.0f, 0.0f, 0.0f };
-
-    case Biome::ArticOcean:
-        return { 6.0f, 3.0f, 0.0f, 0.0f, 0.0f };
-
-    case Biome::Desert:
-        return { 62.0f, 4.0f, 0.2f, 0.0f, 0.0f };
-
-    case Biome::Savanna:
-        return { 68.0f, 6.0f, 0.1f, 0.6f, 110.0f };
-
-    case Biome::Jungle:
-        return { 70.0f, 8.0f, 0.2f, 6.0f, 125.0f };
-
-    case Biome::Plains:
-        return { 64.0f, 6.0f, 0.0f, 1.2f, 115.0f };
-
-    case Biome::Woodland:
-        return { 65.0f, 6.5f, 0.1f, 2.8f, 120.0f };
-
-    case Biome::Forest:
-        return { 66.0f, 7.0f, 0.2f, 4.5f, 120.0f };
-
-    case Biome::Tundra:
-        return { 58.0f, 5.0f, 0.0f, 0.3f, 90.0f };
-
-    case Biome::SnowyTaiga:
-        return { 54.0f, 4.0f, 0.1f, 2.0f, 95.0f };
-
-    case Biome::Mountains:
-        return { 80.0f, 280.0f, 1.0f, 0.25f, 95.0f };
-
-    case Biome::Badlands:
-        return { 72.0f, 175.0f, 1.0f, 0.05f, 90.0f };
-
-    case Biome::Volcano:
-        return { 90.0f, 280.0f, 1.0f, 0.0f, 0.0f };
-    }
-
-    return { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
-
-}
 
 // Gamma function: x^gamma
 float gammaCurve(float x, float gamma) {
@@ -993,7 +907,7 @@ void Terrain::writeChunkBiomemapPNG(int startChunkX, int startChunkZ, int chunkC
 
    
     // First pass: sample heights and find min/max
-    std::vector<Biome> biomes;
+    std::vector<Biome::BiomeType> biomes;
     try {
         biomes.resize(static_cast<size_t>(width) * height);
     }
@@ -1025,49 +939,49 @@ void Terrain::writeChunkBiomemapPNG(int startChunkX, int startChunkZ, int chunkC
         uint8_t b;
 
         switch (biomes[i]) {
-        case Biome::None:
+        case Biome::BiomeType::None:
             r = 0; g = 0; b = 0; // Black
 			break;
-        case Biome::Ocean:
+        case Biome::BiomeType::Ocean:
             r = 0; g = 0; b = 128; // Dark Blue
             break;
-        case Biome::WarmOcean:
+        case Biome::BiomeType::WarmOcean:
             r = 0; g = 0; b = 255; // Blue
             break;
-        case Biome::ArticOcean:
+        case Biome::BiomeType::ArticOcean:
             r = 128; g = 128; b = 255; // Light Blue
             break;
-        case Biome::Desert:
+        case Biome::BiomeType::Desert:
             r = 237; g = 201; b = 175; // Sandy
             break;
-        case Biome::Savanna:
+        case Biome::BiomeType::Savanna:
             r = 189; g = 183; b = 107; // Khaki
             break;
-        case Biome::Jungle:
+        case Biome::BiomeType::Jungle:
             r = 0; g = 100; b = 0; // Dark green
             break;
-        case Biome::Plains:
+        case Biome::BiomeType::Plains:
             r = 124; g = 252; b = 0; // Lawn Green
             break;
-        case Biome::Woodland:
+        case Biome::BiomeType::Woodland:
             r = 107; g = 142; b = 35; // Olive green for distinction
             break;
-        case Biome::Forest:
+        case Biome::BiomeType::Forest:
             r = 34; g = 139; b = 34; // Forest Green
             break;
-        case Biome::Tundra:
+        case Biome::BiomeType::Tundra:
             r = 176; g = 196; b = 222; // Light Steel Blue
             break;
-        case Biome::SnowyTaiga:
+        case Biome::BiomeType::SnowyTaiga:
             r = 255; g = 250; b = 250; // Snow
             break;
-        case Biome::Mountains:
+        case Biome::BiomeType::Mountains:
             r = 139; g = 137; b = 137; // Light Gray
             break;
-        case Biome::Badlands:
+        case Biome::BiomeType::Badlands:
             r = 210; g = 105; b = 30; // Chocolate
             break;
-        case Biome::Volcano:
+        case Biome::BiomeType::Volcano:
             r = 178; g = 34; b = 34; // Firebrick
             break;
         default:
