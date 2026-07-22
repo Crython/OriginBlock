@@ -666,7 +666,7 @@ int main()
     glfwWindowHint(GLFW_DOUBLEBUFFER, GLFW_TRUE);
 
     const char* ProjectName = "OriginBlock";
-	const std::string Version = "v0.1a";
+	const std::string Version = "v0.1b";
 
 
     GLFWwindow* window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, ProjectName, nullptr, nullptr);
