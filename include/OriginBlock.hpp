@@ -1,4 +1,4 @@
-﻿// OriginBlock.h : Include file for standard system include files,
+// OriginBlock.h : Include file for standard system include files,
 // or project specific include files.
 
 #ifndef VOXELENGINE_HPP
@@ -56,22 +56,36 @@ public:
     void update(); // Update logic
 
     void printToChat(const std::string& str, bool mergeWithLastMessage, bool newLine);
-	void clearChat() { chatHistory.clear(); chatOpen = false; chatInput = ""; } // Completely clear chat history and close chat
+	void clearChat() { chatHistory.clear(); inputHistory.clear(); isChatOpen = false; chatInputString = ""; historyIndex = -1; } // Completely clear chat history and close chat
     bool mouseLocked = false;
 
     // Debug stuff
     float currentFPS = 0.f;
     int verticesRendered = 0;
 private:
+    void handleChatInput(float dt);
+    void handleGameplayInput(GLFWwindow* window, float dt);
+    void handlePlayerMovement(float dt);
+    void handleMouseLook();
+    void handleBlockInteraction();
+    void handleScrollInput();
+
+    // Simple helper for key repeat without unordered_map lookups
+    bool processKeyRepeat(int key, float dt);
+
     GLuint lightingUBO;
 
     // Chat thingy's
-    bool chatOpen = false;
-    std::string chatInput = "";
-    std::vector<std::string> chatHistory;
-    const size_t MAX_CHAT_HISTORY = 25;
-    size_t historyIndex = 0; // Track current position in history
-
+    // Header file (e.g., engine.hpp or chat.hpp)
+    std::vector<std::string> chatHistory;  // Stores displayed chat messages
+    std::vector<std::string> inputHistory; // Stores past user inputs for navigation
+    int historyIndex = -1;                // -1 = typing new line; >=0 = index into inputHistory
+    std::string savedDraft = "";          // Remembers what you typed before hitting Up arrow
+    std::string chatInputString = "";
+    bool isChatOpen = false;
+	bool wasChatClosedThisFrame = false; // Tracks if chat was closed in the current frame
+	int MAX_CHAT_HISTORY = 50; // Maximum number of messages to keep in history
+	int MAX_MESSAGES_DISPLAYED = 15; // Maximum number of messages to display at once
 
     // For key repeat in chat
     std::unordered_map<int, float> keyRepeatTimer;

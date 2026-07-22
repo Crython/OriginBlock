@@ -51,6 +51,11 @@ struct VoronoiSpatialGrid {
 // Fix: Use correct 3D array type for blocks parameter
 class Terrain {
 public:
+    struct ColumnData {
+        uint16_t heightMap[CHUNK_SIZE][CHUNK_SIZE];
+        uint16_t maxHeight;
+        Biome biome;
+    };
 
     // Use pointer to 3D array of _Block with CHUNK_SIZE in each dimension
     static void generate(const ChunkCoord& chunkPos, const int seed, _Block (*blocks)[CHUNK_SIZE][CHUNK_SIZE]);
@@ -64,15 +69,13 @@ public:
 
     static void initVoronoi(int seed, int numSites, float mapSize, float startX, float startZ);
 
+    static std::shared_ptr<ColumnData> getOrGenerateColumn(int x, int z, int seed);
+
 private:
     static std::vector<VoronoiSite> voronoiSites;
     static VoronoiSpatialGrid voronoiGrid;
 
-    struct ColumnData {
-        uint16_t heightMap[CHUNK_SIZE][CHUNK_SIZE];
-        uint16_t maxHeight;
-        Biome biome;
-    };
+    
 
 	static float openSimplex2(float x, float y, int seedOffset = 0); // 2D OpenSimplex2 noise
     static void domainWarp(float& x, float& z, int seed);
@@ -106,7 +109,6 @@ private:
         return (static_cast<uint64_t>(static_cast<uint32_t>(x)) << 32) | static_cast<uint32_t>(z);
     }
     
-    static std::shared_ptr<ColumnData> getOrGenerateColumn(int x, int z, int seed);
 
 };
 

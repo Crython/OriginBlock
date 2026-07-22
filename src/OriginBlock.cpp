@@ -101,7 +101,7 @@ Engine::Engine() :
 		glm::vec3(0.0f), // Velocity
 		0.025f           // Block Action Delay
 	};
-    playerCamera.position = glm::dvec3(0, 80.0f, 0);
+    playerCamera.position = glm::dvec3(0.5f, 0.0f, 0.5f);
     playerCamera.rotation = glm::vec3(0.0f, 0.0f, 0.0f); // looking toward positive X
     playerCamera.updateMatrices(WINDOW_WIDTH, WINDOW_HEIGHT);
 
@@ -123,471 +123,302 @@ Engine::~Engine()
 // INPUT HANDLING
 // ===========================
 
-/**
- * Process all player input including movement, camera, block interaction, and chat.
- * Handles both immediate and repeat key presses for text entry.
- */
-void Engine::handleInputs(GLFWwindow* window, float dt)
-{
-    bool sprinting = false;
 
-    RaycastHit hitPos = { glm::ivec3(0), glm::ivec3(0) };
+// Wrapper function for all player input including movement, camera, block interaction, and chat.
+void Engine::handleInputs(GLFWwindow* window, float dt) {
 
-    
-    // ===== CHAT/COMMAND INPUT =====
-    if (Input::keyDown(GLFW_KEY_T) && !chatOpen) {
-        chatOpen = true;
-        chatInput = "";
-        keyRepeatTimer[GLFW_KEY_T] = keyRepeatDelay;
-        Input::setMouseCaptured(false);  // Unlock mouse to type
+	// Handle chat input first, because the function also clears the input buffer
+    // The chat input system can open the chat itself
+    handleChatInput(dt);
+    if (isChatOpen || wasChatClosedThisFrame) {
+		wasChatClosedThisFrame = false; // Reset the flag for the next frame
+		return; // Skip gameplay input while chat is open
     }
-
-    if (chatOpen) {
-        // Lambda to handle adding a character with instant + repeat
-        auto handleKey = [&](int glfwKey, char normalChar, char shiftChar = 0) {
-            char c = normalChar;
-            if (shiftChar != 0) {
-                bool shift = Input::keyDown(GLFW_KEY_LEFT_SHIFT) || Input::keyDown(GLFW_KEY_RIGHT_SHIFT);
-                c = shift ? shiftChar : normalChar;
-            }
-
-            bool wasDown = keyRepeatTimer.count(glfwKey) > 0;
-            bool isDown = Input::keyDown(glfwKey);
-
-            if (isDown && !wasDown) {
-                // First frame the key is down -> instant add
-                chatInput += c;                
-
-                keyRepeatTimer[glfwKey] = keyRepeatDelay;  // Start delay before repeat
-            }
-            else if (isDown && wasDown) {
-                // Key held -> repeat logic
-                float& timer = keyRepeatTimer[glfwKey];
-                timer -= dt;
-                if (timer <= 0.0f) {
-                    chatInput += c;
-                    timer += keyRepeatRate;
-                }
-            }
-            else if (!isDown) {
-                // Key released -> clean up
-                keyRepeatTimer.erase(glfwKey);
-            }
-            };
-        auto handleChar = [&](int keyCode, char normalChar, char shiftChar = 0) {
-           
-            char c = normalChar;
-            if (shiftChar != 0) {
-                bool shift = Input::keyDown(GLFW_KEY_LEFT_SHIFT) || Input::keyDown(GLFW_KEY_RIGHT_SHIFT);
-                c = shift ? shiftChar : normalChar;
-            }
-
-            bool wasDown = keyRepeatTimer.count(keyCode) > 0;
-            bool isDown = Input::charDown(keyCode);
-
-            if (isDown && !wasDown) {
-                // First frame the key is down -> instant add
-                chatInput += c;
-                
-                keyRepeatTimer[keyCode] = keyRepeatDelay;  // Start delay before repeat
-            }
-            else if (isDown && wasDown) {
-                // Key held -> repeat logic
-                float& timer = keyRepeatTimer[keyCode];
-                timer -= dt;
-                if (timer <= 0.0f) {
-                    chatInput += c;
-                    timer += keyRepeatRate;
-                }
-            }
-            else if (!isDown) {
-                // Key released -> clean up
-                keyRepeatTimer.erase(keyCode);
-            }
-            };
-
-        // Letters A-Z
-        for (int k = GLFW_KEY_A; k <= GLFW_KEY_Z; ++k) {
-            handleKey(k, 'a' + (k - GLFW_KEY_A), 'A' + (k - GLFW_KEY_A));
-        }
-
-        // Numbers 0-9 (top row — shift gives symbols if you want later)
-        for (int k = GLFW_KEY_0; k <= GLFW_KEY_9; ++k) {
-            if (k == GLFW_KEY_7) {
-                handleKey(k, '7', '/'); // Special case for '/'
-				continue;
-            }
-            handleKey(k, '0' + (k - GLFW_KEY_0));
-        }
-
-        // Common command keys
-        {
-            handleKey(GLFW_KEY_SPACE, ' ');
-            handleKey(GLFW_KEY_SLASH, '-', '_');
-            handleKey(GLFW_KEY_MINUS, '+', '-');
-		    handleKey(GLFW_KEY_EQUAL, '=');
-		    handleKey(GLFW_KEY_PERIOD, '.', ':');
-		    handleKey(GLFW_KEY_COMMA, ',', ';');
-
-            handleChar(126, '~', 'h');
-        }
-
-        // Backspace — special delete behavior
-        {
-            int key = GLFW_KEY_BACKSPACE;
-            bool isDown = Input::keyDown(key);
-            bool wasDown = keyRepeatTimer.count(key) > 0;
-
-            if (isDown && !wasDown && !chatInput.empty()) {
-                chatInput.pop_back();
-                keyRepeatTimer[key] = keyRepeatDelay;
-            }
-            else if (isDown && wasDown && !chatInput.empty()) {
-                float& timer = keyRepeatTimer[key];
-                timer -= dt;
-                if (timer <= 0.0f) {
-                    chatInput.pop_back();
-                    timer += keyRepeatRate;
-                }
-            }
-            else if (!isDown) {
-                keyRepeatTimer.erase(key);
-            }
-        }
-        // Backslash - prefix for special text commands
-        {
-            
-			// Handle the backslash key and the ALT+(NUMPAD9, 9) + (NUMPAD2, 2) combination for backslash
-			{ // Handle GLFW_KEY_BACKSLASH
-                int key = GLFW_KEY_BACKSLASH;
-                bool isDown = Input::keyDown(key);
-                bool wasDown = keyRepeatTimer.count(key) > 0;
-                if (isDown && !wasDown) {
-                    chatInput += '\\';
-                    keyRepeatTimer[key] = keyRepeatDelay;
-                }
-                else if (isDown && wasDown) {
-                    float& timer = keyRepeatTimer[key];
-                    timer -= dt;
-                    if (timer <= 0.0f) {
-                        chatInput += '\\';
-                        timer += keyRepeatRate;
-                    }
-                }
-                else if (!isDown) {
-                    keyRepeatTimer.erase(key);
-                }
-            }
-			{ // Handle ALT+NUMPAD9 + NUMPAD2 for backslash
-				int keyNumpad9 = GLFW_KEY_KP_9;
-				int keyNum9 = GLFW_KEY_9;
-				int keyNumpad2 = GLFW_KEY_KP_2;
-				int keyNum2 = GLFW_KEY_2;
-				int keyAlt = GLFW_KEY_LEFT_ALT; // or GLFW_KEY_RIGHT_ALT, depending on preference
-
-				// Get the current state of the keys
-				bool isDown9 = Input::keyDown(keyNumpad9);
-				bool isDownNum9 = Input::keyDown(keyNum9);
-				bool isDown2 = Input::keyDown(keyNumpad2);
-				bool isDownNum2 = Input::keyDown(keyNum2);
-				bool isAltDown = Input::keyDown(keyAlt);
-
-				// Check if the keys were down in the previous frame
-				bool wasDown9 = keyRepeatTimer.count(keyNumpad9) > 0;
-				bool wasDownNum9 = keyRepeatTimer.count(keyNum9) > 0;
-				bool wasDown2 = keyRepeatTimer.count(keyNumpad2) > 0;
-				bool wasDownNum2 = keyRepeatTimer.count(keyNum2) > 0;
-
-				// Determine if the combination is currently pressed and then handle the input accordingly
-				bool isCombinationDown = (isDown9 || isDownNum9) && (isDown2 || isDownNum2) && isAltDown;
-				if (isCombinationDown && (!wasDown9 || !wasDownNum9) && (!wasDown2 || !wasDownNum2)) {
-					chatInput += '\\';
-					keyRepeatTimer[keyNumpad9] = keyRepeatDelay;
-					keyRepeatTimer[keyNumpad2] = keyRepeatDelay;
-				}
-				// Handle repeat for the combination with both keys down and a wait time of 0.4 seconds before repeating
-				else if (isCombinationDown && (wasDown9 || wasDownNum9) && (wasDown2 || wasDownNum2)) {
-					float& timer9 = keyRepeatTimer[keyNumpad9];
-					float& timer2 = keyRepeatTimer[keyNumpad2];
-					float& timerNum9 = keyRepeatTimer[keyNum9];
-					float& timerNum2 = keyRepeatTimer[keyNum2];
-
-					timer9 -= dt;
-					timer2 -= dt;
-					timerNum9 -= dt;
-					timerNum2 -= dt;
-
-					if (timer9 <= 0.0f || timerNum9 <= 0.0f || timer2 <= 0.0f || timerNum2 <= 0.0f) {
-						chatInput += '\\';
-						timer9 += keyRepeatRate;
-						timer2 += keyRepeatRate;
-						timerNum9 += keyRepeatRate;
-						timerNum2 += keyRepeatRate;
-					}
-				}
-				// Handle key release seperately for both keys to ensure repeat stops when either is released
-				else if (!isCombinationDown) {
-					keyRepeatTimer.erase(keyNumpad9);
-					keyRepeatTimer.erase(keyNumpad2);
-					keyRepeatTimer.erase(keyNum9);
-					keyRepeatTimer.erase(keyNum2);
-				}
-
-            }
-        }
-
-
-        // Up/Down arrows to cycle chat history
-        {
-            int keyUp = GLFW_KEY_UP;
-            int keyDown = GLFW_KEY_DOWN;
-            bool isDownUp = Input::keyDown(keyUp);
-            bool isDownDown = Input::keyDown(keyDown);
-            bool wasDownUp = keyRepeatTimer.count(keyUp) > 0;
-            bool wasDownDown = keyRepeatTimer.count(keyDown) > 0;
-
-            if ((isDownUp && !wasDownUp) || (isDownDown && !wasDownDown)) {
-                if (isDownUp) historyIndex++;
-                else if (historyIndex > 0) historyIndex--;
-
-                // Filter chatHistory for user inputs (starting with "< ")
-                std::vector<std::string> inputs;
-                for (auto const& s : chatHistory) {
-                    if (s.rfind("< ", 0) == 0) {
-                        inputs.push_back(s.substr(2));
-                    }
-                }
-
-                if (inputs.empty()) {
-                    historyIndex = 0;
-                } else {
-                    if (historyIndex > inputs.size()) historyIndex = inputs.size();
-                    if (historyIndex == 0) chatInput = "";
-                    else chatInput = inputs[inputs.size() - historyIndex];
-                }
-
-                keyRepeatTimer[isDownUp ? keyUp : keyDown] = keyRepeatDelay;
-            }
-            else if (isDownUp || isDownDown) {
-                int key = isDownUp ? keyUp : keyDown;
-                float& timer = keyRepeatTimer[key];
-                timer -= dt;
-                if (timer <= 0.0f) {
-                    if (isDownUp) historyIndex++;
-                    else if (historyIndex > 0) historyIndex--;
-
-                    std::vector<std::string> inputs;
-                    for (auto const& s : chatHistory) {
-                        if (s.rfind("< ", 0) == 0) {
-                            inputs.push_back(s.substr(2));
-                        }
-                    }
-
-                    if (!inputs.empty()) {
-                        if (historyIndex > inputs.size()) historyIndex = inputs.size();
-                        if (historyIndex == 0) chatInput = "";
-                        else chatInput = inputs[inputs.size() - historyIndex];
-                    } else historyIndex = 0;
-
-                    timer += keyRepeatRate;
-                }
-            }
-            else {
-                keyRepeatTimer.erase(keyUp);
-                keyRepeatTimer.erase(keyDown);
-            }
-        }
-        // Submit command
-        if (Input::keyDown(GLFW_KEY_ENTER)) {
-            if (!chatInput.empty()) {
-				printToChat("< " + chatInput, false, true);
-
-                std::vector<std::string> args;
-                size_t cmdID = command.getCommandID(chatInput, args);
-                if (cmdID > 0) {
-                    command.executeCommand(cmdID, args, chatInput, *this);
-                }
-                else if (!chatInput.empty() && chatInput[0] == '/') {
-                    printToChat("Unknown command", false, true);
-                }
-            }
-            chatOpen = false;
-            chatInput.clear();
-            historyIndex = 0;
-            Input::setMouseCaptured(true);
-        }
-
-        // Cancel
-        if (Input::keyDown(GLFW_KEY_ESCAPE)) {
-            chatOpen = false;
-            chatInput.clear();
-            historyIndex = 0;
-            Input::setMouseCaptured(true);
-        }
-    }
-    else { // Regular gameplay input (movement and interaction)
-
-
-        // ===== ESCAPE & UTILITY KEYS =====
-        if (Input::keyDown(GLFW_KEY_ESCAPE))
-        {
-            glfwSetWindowShouldClose(window, true);
-        }
-        if (Input::keyDown(GLFW_KEY_M))
-        {
-            Input::setMouseCaptured(!Input::isMouseCaptured());
-        }
-        if (Input::keyDown(GLFW_KEY_R))
-        {
-            overworld.reloadAllChunks(true);
-        }
-
-        // ===== PLAYER MOVEMENT =====
-        glm::vec3 moveDir(0.0f);
-        glm::dvec3 forward = playerCamera.getForwardVectorMovement();
-        if (glm::length(forward) > 0.0001) forward = glm::normalize(forward);
-        
-        glm::vec3 right = glm::normalize(glm::cross(forward, glm::dvec3(0.0, 1.0, 0.0)));
-        glm::vec3 up = glm::vec3(0, 1, 0); // Y-up world
-
-        if (Input::keyDown(GLFW_KEY_W)) moveDir += forward;
-        if (Input::keyDown(GLFW_KEY_S)) moveDir -= forward;
-        if (Input::keyDown(GLFW_KEY_A)) moveDir -= right;
-        if (Input::keyDown(GLFW_KEY_D)) moveDir += right;
-
-        if (playerCamera.isFlying) {
-            if (Input::keyDown(GLFW_KEY_SPACE)) moveDir += up;
-            if (Input::keyDown(GLFW_KEY_LEFT_CONTROL)) moveDir -= up;
-            if (Input::keyDown(GLFW_KEY_LEFT_SHIFT)) sprinting = true;
-        } else {
-            if (Input::keyDown(GLFW_KEY_LEFT_SHIFT)) sprinting = true;
-            if (Input::keyDown(GLFW_KEY_SPACE) && playerCamera.onGround) {
-                playerCamera.velocity.y = JUMP_FORCE;
-                playerCamera.onGround = false;
-            }
-        }
-
-        if (glm::length(moveDir) > 0.0f) moveDir = glm::normalize(moveDir);
-		bool diagonalMoving = (Input::keyDown(GLFW_KEY_A) || Input::keyDown(GLFW_KEY_D)) && (Input::keyDown(GLFW_KEY_W) || Input::keyDown(GLFW_KEY_S));
-
-        float speedMultiplier = sprinting ? SPRINT_MULTIPLIER : NORMAL_MULTIPLIER;
-		speedMultiplier = playerCamera.isFlying ? speedMultiplier * 2.7f : speedMultiplier; // Faster flying
-		speedMultiplier = playerCamera.onGround ? speedMultiplier : speedMultiplier * 0.75f; // Slower in air when walking
-		speedMultiplier = diagonalMoving ? speedMultiplier * 1.03f : speedMultiplier; // Slight boost for diagonal movement to feel natural
-
-        if (playerCamera.isFlying) {
-            // Flight physics: smooth acceleration/deceleration
-            if (glm::length(moveDir) > 0.0f) {
-                playerCamera.velocity += moveDir * (playerCamera.movementSpeed * dt * 5.0f); 
-                if (glm::length(playerCamera.velocity) > playerCamera.movementSpeed * speedMultiplier)
-                    playerCamera.velocity = glm::normalize(playerCamera.velocity) * (playerCamera.movementSpeed * speedMultiplier);
-            }
-            else {
-                float speed = glm::length(playerCamera.velocity);
-                if (speed > 0.0f) {
-                    float decelAmount = PLAYER_DECELERATION * dt * 2.0f;
-                    if (decelAmount > speed)
-                        playerCamera.velocity = glm::vec3(0.0f);
-                    else
-                        playerCamera.velocity -= glm::normalize(playerCamera.velocity) * decelAmount;
-                }
-            }
-            playerCamera.position += playerCamera.velocity * dt;
-        } else {
-            // Walking physics
-            glm::vec3 horizontalVel = moveDir * (playerCamera.movementSpeed * speedMultiplier);
-            playerCamera.velocity.x = horizontalVel.x;
-            playerCamera.velocity.z = horizontalVel.z;
-            
-            // Apply gravity
-            playerCamera.velocity.y += GRAVITY * dt;
-            
-            // Resolve collisions
-            glm::vec3 frameVelocity = playerCamera.velocity * dt;
-            glm::dvec3 bottomPos = playerCamera.position;
-            bottomPos.y -= PLAYER_EYE_HEIGHT;
-
-            overworld.resolveCollision(bottomPos, frameVelocity, playerCamera.dimensions, playerCamera.onGround);
-            
-            playerCamera.position = bottomPos;
-            playerCamera.position.y += PLAYER_EYE_HEIGHT;
-
-            // Update velocity from resolved frame velocity (if we hit a wall/floor)
-            playerCamera.velocity.y = frameVelocity.y / dt;
-        }
-
-        if (glm::length(playerCamera.velocity) > 0.0f || !playerCamera.onGround) playerCamera.updateMatrices(WINDOW_WIDTH, WINDOW_HEIGHT);
-
-
-        // ===== MOUSE LOOK =====
-        if (Input::isMouseCaptured())
-        {
-            float dx = Input::consumeMouseDX();
-            float dy = Input::consumeMouseDY();
-            if (dx != 0.0f || dy != 0.0f) {
-                cam.updateCameraRotation(playerCamera, dx, dy, playerCamera.sensitivity / 100);
-                viewDir = glm::normalize(playerCamera.getForwardVector());
-                playerCamera.updateMatrices(WINDOW_WIDTH, WINDOW_HEIGHT);
-            }
-        }
-
-        // ===== BLOCK INTERACTION =====
-        // Place block
-        if (Input::mouseDown(GLFW_MOUSE_BUTTON_RIGHT) && playerCamera.blockPlaceCooldown <= 0.0f) {
-            if (overworld.raycast(playerCamera.position, playerCamera.getForwardVector(), 10.0f, hitPos)) {
-
-                // Avoid placing blocks inside the player
-                glm::ivec3 placePos = hitPos.block + hitPos.normal;
-                glm::dvec3 playerBottom = playerCamera.position;
-                playerBottom.y -= PLAYER_EYE_HEIGHT;
-
-                glm::ivec3 pMin = glm::floor(playerBottom - glm::dvec3(playerCamera.dimensions.x / 2.0, 0.0, playerCamera.dimensions.z / 2.0));
-                glm::ivec3 pMax = glm::floor(playerBottom + glm::dvec3(playerCamera.dimensions.x / 2.0, playerCamera.dimensions.y, playerCamera.dimensions.z / 2.0));
-
-                if (placePos.x < pMin.x || placePos.x > pMax.x ||
-                    placePos.y < pMin.y || placePos.y > pMax.y ||
-                    placePos.z < pMin.z || placePos.z > pMax.z) 
-                {
-                    overworld.placeBlock(hitPos, BlockType::DIRECTION); // TODO: add a way to place many different blocks (inventory system)
-                }
-
-            }
-            playerCamera.blockPlaceCooldown = playerCamera.BLOCK_ACTION_DELAY;
-        }
-
-        // Break block
-        if (Input::mouseDown(GLFW_MOUSE_BUTTON_LEFT) && playerCamera.blockBreakCooldown <= 0.0f) {
-            if (overworld.raycast(playerCamera.position, playerCamera.getForwardVector(), 10.0f, hitPos)) {
-                overworld.breakBlock(hitPos);
-            }
-            playerCamera.blockBreakCooldown = playerCamera.BLOCK_ACTION_DELAY;
-        }
-
-        float scrollY = (float)Input::consumeScrollDY();
-        if (scrollY != 0.0f) {
-            /*
-            overworld.lightData.fogDensity += scrollY * 0.0005f; // Adjust sensitivity as needed
-            if (overworld.lightData.fogDensity < 0.0f) overworld.lightData.fogDensity = 0.0f;
-            if (overworld.lightData.fogDensity > 1.0f) overworld.lightData.fogDensity = 1.0f;
-            printToChat("Fog Density: " + std::to_string(overworld.lightData.fogDensity), false, true);
-            */
-            playerCamera.FOV -= scrollY;
-
-            if (playerCamera.FOV < 0.5f) playerCamera.FOV = 0.5f;
-            if (playerCamera.FOV > 120.0f) playerCamera.FOV = 120.0f;
-
-            playerCamera.sensitivity = 0.3f * (0.01111f * playerCamera.FOV); // Scale sensitivity to make looking at different FOVs better
-            playerCamera.updateMatrices(WINDOW_WIDTH, WINDOW_HEIGHT); // Update matrices so the effects would take place
-
-            printToChat("FOV: " + std::to_string(playerCamera.FOV), false, true);
-
-        }
+    else {
+        handleGameplayInput(window, dt);
     }
 }
 
-// ===========================
-// RENDERING
-// ===========================
+// Handles chat input, including text entry, history navigation, and command execution.
+void Engine::handleChatInput(float dt) {
+	// Open chat with 'T' or '/' if not already open, though this should be handled in handleInputs() already
+    if (!isChatOpen) {
+        if (Input::keyPressed(GLFW_KEY_T)) {
+            isChatOpen = true;
+            Input::setMouseCaptured(false);
+            Input::consumeCharBuffer(); // Drain stale key buffers
+            historyIndex = -1;
+            return;
+        }
+        if (Input::keyPressed(GLFW_KEY_SLASH)) {
+            isChatOpen = true;
+            Input::setMouseCaptured(false);
+            Input::consumeCharBuffer();
+            chatInputString = "/"; // Auto-insert slash when opening with '/'
+            historyIndex = -1;
+            return;
+        }
+        return;
+    }
+
+	// Unicode character input handling (consumes the character buffer)
+    std::vector<uint32_t> chars = Input::consumeCharBuffer();
+    for (uint32_t c : chars) {
+        if (c >= 32 && c != 127) { // Printable character range
+            chatInputString += static_cast<char>(c);
+
+            // Reset history navigation if user edits manually after pressing Up
+            if (historyIndex != -1) {
+                historyIndex = -1;
+            }
+        }
+    }
+
+	// 3. Editing: Backspace key handling
+    if (Input::keyPressed(GLFW_KEY_BACKSPACE) && !chatInputString.empty()) {
+        chatInputString.pop_back();
+        if (historyIndex != -1) {
+            historyIndex = -1;
+        }
+    }
+
+    // 4. History cycling (Up / Down Arrow Keys)
+    if (!inputHistory.empty()) {
+        // Up arrow: Move backward into history (older entries)
+        if (Input::keyPressed(GLFW_KEY_UP)) {
+            if (historyIndex == -1) {
+                // Save whatever user was typing before navigating history
+                savedDraft = chatInputString;
+                historyIndex = static_cast<int>(inputHistory.size()) - 1;
+            }
+            else if (historyIndex > 0) {
+                historyIndex--;
+            }
+
+            chatInputString = inputHistory[historyIndex];
+        }
+
+        // Down arrow: Move forward into history (newer entries)
+        if (Input::keyPressed(GLFW_KEY_DOWN)) {
+            if (historyIndex != -1) {
+                historyIndex++;
+                if (historyIndex >= static_cast<int>(inputHistory.size())) {
+                    // Returned to current draft
+                    historyIndex = -1;
+                    chatInputString = savedDraft;
+                }
+                else {
+                    chatInputString = inputHistory[historyIndex];
+                }
+            }
+        }
+    }
+
+	// 5. Command execution or chat message sending (Enter key)
+    if (Input::keyPressed(GLFW_KEY_ENTER) || Input::keyPressed(GLFW_KEY_KP_ENTER)) {
+        if (!chatInputString.empty()) {
+            // Push to user input history (avoiding duplicate back-to-back entries)
+            if (inputHistory.empty() || inputHistory.back() != chatInputString) {
+                inputHistory.push_back(chatInputString);
+                if (inputHistory.size() > MAX_CHAT_HISTORY) {
+                    inputHistory.erase(inputHistory.begin());
+                }
+            }
+
+            // Differentiate between commands and plain chat
+			if (chatInputString[0] == '/') { // Command detected
+                command.executeCommand(chatInputString, *this);
+            }
+			else { // Plain chat message
+                printToChat(chatInputString, false, true);
+            }
+
+            chatInputString.clear();
+            savedDraft.clear();
+        }
+
+        historyIndex = -1;
+        isChatOpen = false;
+        Input::setMouseCaptured(true);
+    }
+
+	// 6. Cancel chat input (Escape key)
+    if (Input::keyPressed(GLFW_KEY_ESCAPE)) {
+        chatInputString.clear();
+        savedDraft.clear();
+        historyIndex = -1;
+        isChatOpen = false;
+		wasChatClosedThisFrame = true; // Mark that chat was closed this frame
+        Input::setMouseCaptured(true);
+    }
+}
+
+// Helper function to handle timing delay/rate for held keys cleanly
+bool Engine::processKeyRepeat(int key, float dt) {
+    auto it = keyRepeatTimer.find(key);
+    if (it == keyRepeatTimer.end()) {
+        keyRepeatTimer[key] = keyRepeatDelay;
+        return true; // First frame trigger
+    }
+
+    it->second -= dt;
+    if (it->second <= 0.0f) {
+        it->second += keyRepeatRate;
+        return true; // Repeat trigger
+    }
+
+    return false;
+}
+
+void Engine::handleGameplayInput(GLFWwindow* window, float dt) {
+    // Utility Shortcuts
+    if (Input::keyPressed(GLFW_KEY_ESCAPE)) glfwSetWindowShouldClose(window, true);
+    if (Input::keyPressed(GLFW_KEY_M)) Input::setMouseCaptured(!Input::isMouseCaptured());
+    if (Input::keyPressed(GLFW_KEY_R)) overworld.reloadAllChunks(true);
+
+    handlePlayerMovement(dt);
+    handleMouseLook();
+    handleBlockInteraction();
+    handleScrollInput();
+}
+
+void Engine::handlePlayerMovement(float dt) {
+    glm::vec3 moveDir(0.0f);
+    glm::dvec3 forward = playerCamera.getForwardVectorMovement();
+    if (glm::length(forward) > 0.0001) forward = glm::normalize(forward);
+
+    glm::vec3 right = glm::normalize(glm::cross(forward, glm::dvec3(0.0, 1.0, 0.0)));
+    glm::vec3 up(0.0f, 1.0f, 0.0f);
+
+    if (Input::keyDown(GLFW_KEY_W)) moveDir += forward;
+    if (Input::keyDown(GLFW_KEY_S)) moveDir -= forward;
+    if (Input::keyDown(GLFW_KEY_A)) moveDir -= right;
+    if (Input::keyDown(GLFW_KEY_D)) moveDir += right;
+
+    bool sprinting = Input::keyDown(GLFW_KEY_LEFT_SHIFT);
+
+    if (playerCamera.isFlying) {
+        if (Input::keyDown(GLFW_KEY_SPACE)) moveDir += up;
+        if (Input::keyDown(GLFW_KEY_LEFT_CONTROL)) moveDir -= up;
+    }
+    else {
+        // Check keyDown instead of keyPressed so holding Space continuously jumps
+        if (Input::keyDown(GLFW_KEY_SPACE) && playerCamera.onGround) {
+            playerCamera.velocity.y = JUMP_FORCE;
+            playerCamera.onGround = false;
+        }
+    }
+
+    if (glm::length(moveDir) > 0.0f) moveDir = glm::normalize(moveDir);
+
+    bool diagonalMoving = (Input::keyDown(GLFW_KEY_A) || Input::keyDown(GLFW_KEY_D)) &&
+        (Input::keyDown(GLFW_KEY_W) || Input::keyDown(GLFW_KEY_S));
+
+    float speedMultiplier = sprinting ? SPRINT_MULTIPLIER : NORMAL_MULTIPLIER;
+    if (playerCamera.isFlying) speedMultiplier *= 2.7f;
+    else if (!playerCamera.onGround) speedMultiplier *= 0.75f;
+    if (diagonalMoving) speedMultiplier *= 1.03f;
+
+    // Movement Physics
+    if (playerCamera.isFlying) {
+        if (glm::length(moveDir) > 0.0f) {
+            playerCamera.velocity += moveDir * (playerCamera.movementSpeed * dt * 5.0f);
+            float maxSpeed = playerCamera.movementSpeed * speedMultiplier;
+            if (glm::length(playerCamera.velocity) > maxSpeed)
+                playerCamera.velocity = glm::normalize(playerCamera.velocity) * maxSpeed;
+        }
+        else {
+            float speed = glm::length(playerCamera.velocity);
+            if (speed > 0.0f) {
+                float decelAmount = PLAYER_DECELERATION * dt * 2.0f;
+                if (decelAmount > speed) playerCamera.velocity = glm::vec3(0.0f);
+                else playerCamera.velocity -= glm::normalize(playerCamera.velocity) * decelAmount;
+            }
+        }
+        playerCamera.position += playerCamera.velocity * dt;
+    }
+    else {
+        glm::vec3 horizontalVel = moveDir * (playerCamera.movementSpeed * speedMultiplier);
+        playerCamera.velocity.x = horizontalVel.x;
+        playerCamera.velocity.z = horizontalVel.z;
+        playerCamera.velocity.y += GRAVITY * dt;
+
+        glm::vec3 frameVelocity = playerCamera.velocity * dt;
+        glm::dvec3 bottomPos = playerCamera.position;
+        bottomPos.y -= PLAYER_EYE_HEIGHT;
+
+        overworld.resolveCollision(bottomPos, frameVelocity, playerCamera.dimensions, playerCamera.onGround);
+
+        playerCamera.position = bottomPos;
+        playerCamera.position.y += PLAYER_EYE_HEIGHT;
+        playerCamera.velocity.y = frameVelocity.y / dt;
+    }
+
+    if (glm::length(playerCamera.velocity) > 0.0f || !playerCamera.onGround) {
+        playerCamera.updateMatrices(WINDOW_WIDTH, WINDOW_HEIGHT);
+    }
+}
+
+void Engine::handleMouseLook() {
+    if (!Input::isMouseCaptured()) return;
+
+    float dx = static_cast<float>(Input::consumeMouseDX());
+    float dy = static_cast<float>(Input::consumeMouseDY());
+
+    if (dx != 0.0f || dy != 0.0f) {
+        cam.updateCameraRotation(playerCamera, dx, dy, playerCamera.sensitivity / 100.0f);
+        viewDir = glm::normalize(playerCamera.getForwardVector());
+        playerCamera.updateMatrices(WINDOW_WIDTH, WINDOW_HEIGHT);
+    }
+}
+
+void Engine::handleBlockInteraction() {
+    RaycastHit hitPos = { glm::ivec3(0), glm::ivec3(0) };
+
+    // Place Block (Right Click)
+    if (Input::mouseDown(GLFW_MOUSE_BUTTON_RIGHT) && playerCamera.blockPlaceCooldown <= 0.0f) {
+        if (overworld.raycast(playerCamera.position, playerCamera.getForwardVector(), 10.0f, hitPos)) {
+            glm::ivec3 placePos = hitPos.block + hitPos.normal;
+            glm::dvec3 playerBottom = playerCamera.position;
+            playerBottom.y -= PLAYER_EYE_HEIGHT;
+
+            glm::ivec3 pMin = glm::floor(playerBottom - glm::dvec3(playerCamera.dimensions.x / 2.0, 0.0, playerCamera.dimensions.z / 2.0));
+            glm::ivec3 pMax = glm::floor(playerBottom + glm::dvec3(playerCamera.dimensions.x / 2.0, playerCamera.dimensions.y, playerCamera.dimensions.z / 2.0));
+
+            // Prevent placing blocks directly inside player bounding box
+            if (placePos.x < pMin.x || placePos.x > pMax.x ||
+                placePos.y < pMin.y || placePos.y > pMax.y ||
+                placePos.z < pMin.z || placePos.z > pMax.z)
+            {
+                overworld.placeBlock(hitPos, BlockType::DIRECTION);
+            }
+        }
+        playerCamera.blockPlaceCooldown = playerCamera.BLOCK_ACTION_DELAY;
+    }
+
+    // Break Block (Left Click)
+    if (Input::mouseDown(GLFW_MOUSE_BUTTON_LEFT) && playerCamera.blockBreakCooldown <= 0.0f) {
+        if (overworld.raycast(playerCamera.position, playerCamera.getForwardVector(), 10.0f, hitPos)) {
+            overworld.breakBlock(hitPos);
+        }
+        playerCamera.blockBreakCooldown = playerCamera.BLOCK_ACTION_DELAY;
+    }
+}
+
+void Engine::handleScrollInput() {
+    float scrollY = static_cast<float>(Input::consumeScrollDY());
+    if (scrollY == 0.0f) return;
+
+    playerCamera.FOV -= scrollY;
+    playerCamera.FOV = glm::clamp(playerCamera.FOV, 0.5f, 120.0f);
+
+    playerCamera.sensitivity = 0.3f * (0.01111f * playerCamera.FOV);
+    playerCamera.updateMatrices(WINDOW_WIDTH, WINDOW_HEIGHT);
+
+    printToChat("FOV: " + std::to_string(playerCamera.FOV), false, true);
+}
+
+
 
 /**
  * Render the world and UI.
@@ -617,24 +448,23 @@ void Engine::render()
     WorldLightingData& light = overworld.lightData;
     glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(WorldLightingData), &light);
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
-
     
     // Draw the overworld
     // Pass rotationOnlyVP for frustum extraction and shader uniforms
     overworld.draw(voxelShader, lightDir, rotationOnlyVP, playerCamera.position, verticesRendered);
 
-    // ======= UI & HUD RENDERING =======
+	// UI Rendering (Crosshair, Debug Stats, Chat)
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    // 1. Draw Crosshair
+    // Draw Crosshair
     uiShader.bind();
     glBindVertexArray(uiVAO);
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glBindVertexArray(0);
     
-    // 2. Draw Debug Stats (Top Left)
+    // Draw Debug Stats (Top Left)
     
     std::stringstream posStream;
     posStream << std::fixed << std::setprecision(3) << "Pos: " 
@@ -666,23 +496,29 @@ void Engine::render()
 
     }
 
-    // 3. Draw Chat (Bottom Left)
+    // Draw Chat (Bottom Left)
     float chatY = (float)WINDOW_HEIGHT - 27.5f;
     float lineHeight = 25.0f;
 
     // Background for chat
-    if (chatOpen || !chatHistory.empty()) {
-        float bgWidth = 400.0f;
-        float bgHeight = (chatHistory.size() + (chatOpen ? 1 : 0)) * lineHeight + 10.0f;
+    if (isChatOpen || !chatHistory.empty()) {
+        float bgWidth = 425.0f;
+        float bgHeight = (chatHistory.size() + (isChatOpen ? 1 : 0)) * lineHeight + 10.0f;
         drawRect(5.0f, (float)WINDOW_HEIGHT - bgHeight - 15.0f, bgWidth, bgHeight, glm::vec4(0.0f, 0.0f, 0.0f, 0.5f));
     }
 
-    if (chatOpen) {
-        text->renderText("> " + chatInput + "_", 10.0f, chatY, 1.0f, glm::vec3(1.0f), false);
+	// Render the current chat input line with a blinking cursor (TODO: implement blinking)
+    if (isChatOpen) {
+        text->renderText("> " + chatInputString + "_", 10.0f, chatY, 1.0f, glm::vec3(1.0f), false);
         chatY -= lineHeight;
     }
 
+	// Render chat history in reverse order (most recent at the bottom)
+	int messagesDisplayed = 0;
     for (int i = chatHistory.size() - 1; i >= 0; --i) {
+        if (messagesDisplayed >= MAX_MESSAGES_DISPLAYED) break;
+        messagesDisplayed++;
+
         text->renderText(chatHistory[i], 10.0f, chatY, 0.8f, glm::vec3(0.9f), true);
         chatY -= lineHeight;
     }
@@ -709,15 +545,39 @@ void Engine::update()
 
 void Engine::printToChat(const std::string& str, bool mergeWithLastMessage, bool newLine)
 {
-    if (!mergeWithLastMessage) chatHistory.push_back(str);
-    else {
-        if (chatHistory.empty()) chatHistory.push_back(str);
-        else chatHistory.back() += str;
-	}
-    if (chatHistory.size() > MAX_CHAT_HISTORY) {
-        chatHistory.erase(chatHistory.begin());
+    if (str.empty()) return;
+
+    std::stringstream ss(str);
+    std::string line;
+    bool first = true;
+
+    while (std::getline(ss, line, '\n')) {
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+
+        if (ss.eof() && line.empty()) {
+            break;
+        }
+
+        if (first && mergeWithLastMessage) {
+            if (chatHistory.empty()) {
+                chatHistory.push_back(line);
+            } else {
+                chatHistory.back() += line;
+            }
+        } else {
+            chatHistory.push_back(line);
+        }
+        first = false;
+
+        if (chatHistory.size() > MAX_CHAT_HISTORY) {
+            chatHistory.erase(chatHistory.begin());
+        }
     }
 }
+
+
 
 void Engine::drawRect(float x, float y, float w, float h, glm::vec4 color) {
     colorShader.bind();
@@ -778,7 +638,6 @@ void Engine::initCrosshair()
     glBindVertexArray(0);
 }
 
-
 void focus_callback(GLFWwindow* window, int focused) {
     if (focused) {
         // The window has gained focus
@@ -835,8 +694,20 @@ int main()
     engine.overworld.setRandSeed();
     std::cout << "Seed: " << engine.overworld.worldSeed << "\n";
 
-	engine.terrain.initVoronoi(engine.overworld.worldSeed, 10'000, 10000, -5000.0f, -5000.0f);
+	engine.terrain.initVoronoi(engine.overworld.worldSeed, 1'000, 1'000, -500.0f, -500.0f);
+    engine.overworld.updateLoadedChunks(engine.playerCamera.position, engine.viewDir, engine.overworld.worldSeed);
 
+
+	// Make sure the player is above the terrain
+	int playerLocalX = static_cast<int>(engine.playerCamera.position.x) % 16;
+	int playerLocalZ = static_cast<int>(engine.playerCamera.position.z) % 16;
+	int terrainHeightBelowPlayer = engine.terrain.getOrGenerateColumn(engine.playerCamera.position.x, engine.playerCamera.position.z, engine.overworld.worldSeed)->heightMap[playerLocalX][playerLocalZ];
+	//engine.playerCamera.isFlying = false; // Disable flying so we would collide with the terrain
+	while (engine.playerCamera.position.y < terrainHeightBelowPlayer + 5.0f && !engine.overworld.checkCollision(engine.playerCamera.position, engine.playerCamera.dimensions)) {
+		engine.playerCamera.position.y += 1.0f; // Move player up until they are above the terrain
+	}
+
+    /*
     std::string debugFilenameStr = "heightmaps/heightmap" + std::to_string(engine.overworld.worldSeed) + ".png";
     const char* debugFilename = debugFilenameStr.c_str();
     //engine.terrain.writeChunkHeightmapPNG(-500, -500, 1000, 1000, 16, engine.overworld.worldSeed, debugFilename);
@@ -844,8 +715,7 @@ int main()
     debugFilenameStr = "biomemaps/biomemap" + std::to_string(engine.overworld.worldSeed) + ".png";
     debugFilename = debugFilenameStr.c_str();
     //engine.terrain.writeChunkBiomemapPNG(-500, -500, 1000, 1000, 16, engine.overworld.worldSeed, debugFilename);
-
-    engine.overworld.updateLoadedChunks(engine.playerCamera.position, engine.viewDir, engine.overworld.worldSeed);
+    */
 
 
     // Timing
@@ -863,34 +733,41 @@ int main()
         double frameTime = currentTime - previousTime;
         previousTime = currentTime;
 
+        // 1. Clamp frameTime to prevent the "Spiral of Death" during lag spikes/pauses
+        if (frameTime > 0.25)
+        {
+            frameTime = 0.25;
+        }
+
         accumulator += frameTime;
         fpsTimer += frameTime;
 
-
-
-        // Poll input every frame
+        // 2. Fetch OS events & prepare input state ONCE per frame
         glfwPollEvents();
         Input::newFrame();
 
+        // 3. Process inputs ONCE per frame using frameTime
+        if (mainWindowFocused)
+        {
+            engine.handleInputs(window, static_cast<float>(frameTime));
+        }
+
+        // 4. Fixed-rate physics & simulation updates (runs 0, 1, or multiple times)
         while (accumulator >= FIXED_DT)
         {
             float dt = FIXED_DT;
 
-            if (mainWindowFocused)
-                engine.handleInputs(window, dt); // use Input class directly
-
-            // cooldowns
+            // Block interaction cooldowns (tick at fixed rate)
             if (engine.playerCamera.blockPlaceCooldown > 0.0f) engine.playerCamera.blockPlaceCooldown -= dt;
             if (engine.playerCamera.blockBreakCooldown > 0.0f) engine.playerCamera.blockBreakCooldown -= dt;
 
+            // Step physics & world state
             engine.update();
 
             accumulator -= FIXED_DT;
         }
 
-
-
-        // Render (interpolation can be added if desired)
+        // 5. Render frame
         glm::vec3 fc = engine.overworld.lightData.fogColor;
         glClearColor(fc.r, fc.g, fc.b, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -901,8 +778,8 @@ int main()
         glfwSwapBuffers(window);
         frameCount++;
 
-        // FPS calculation (updates ten times per second)
-        if (fpsTimer >= 0.1)
+        // 6. Smooth FPS calculation (updates twice per second)
+        if (fpsTimer >= 0.5)
         {
             engine.currentFPS = frameCount / static_cast<float>(fpsTimer);
             frameCount = 0;

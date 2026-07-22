@@ -1,14 +1,13 @@
 #include "pch.h"
-
 #include "inputs.hpp"
 
 GLFWwindow* Input::window = nullptr;
 
-std::unordered_set<uint32_t> Input::chars = {};
+std::vector<uint32_t> Input::charBuffer = {};
+
 bool Input::keys[512] = {};
 bool Input::prevKeys[512] = {};
 bool Input::pressed[512] = {};
-bool Input::usedKeys[512] = {};
 
 bool Input::mouseButtons[16] = {};
 bool Input::prevMouseButtons[16] = {};
@@ -28,8 +27,8 @@ bool Input::hasMouse = false;
 
 void Input::init(GLFWwindow* win) {
     window = win;
+    charBuffer.reserve(16);
 
-    // Set the callbacks
     glfwSetCharCallback(window, characterCallback);
     glfwSetKeyCallback(win, keyCallback);
     glfwSetMouseButtonCallback(win, mouseButtonCallback);
@@ -40,10 +39,18 @@ void Input::init(GLFWwindow* win) {
 
 void Input::newFrame()
 {
+    // DO NOT clear charBuffer here! It is safely managed by consumeCharBuffer().
+
     for (int i = 0; i < 512; i++)
     {
         pressed[i] = keys[i] && !prevKeys[i];
         prevKeys[i] = keys[i];
+    }
+
+    for (int i = 0; i < 16; i++)
+    {
+        mousePressedArr[i] = mouseButtons[i] && !prevMouseButtons[i];
+        prevMouseButtons[i] = mouseButtons[i];
     }
 
     if (mouseCaptured && hasMouse)
@@ -56,29 +63,30 @@ void Input::newFrame()
     prevMouseY = mouseY;
 }
 
-// Key accessors
-bool Input::keyDown(int k) { return keys[k]; }
-bool Input::charDown(uint32_t codepoint) {
-    if (chars.find(codepoint) != chars.end()) {
-        chars.erase(codepoint);
-        return true;
-	}
-    return false;
-}
-bool Input::keyPressed(int key) {
-    if (key < 0 || key >= 512) return false;
-    return pressed[key];  // This is already computed correctly in newFrame()
+bool Input::keyDown(int k) {
+    return k >= 0 && k < 512 && keys[k];
 }
 
-// Mouse accessors
+bool Input::keyPressed(int key) {
+    if (key < 0 || key >= 512) return false;
+    return pressed[key];
+}
+
+// Atomically retrieves and clears the typed character buffer
+std::vector<uint32_t> Input::consumeCharBuffer() {
+    std::vector<uint32_t> result = std::move(charBuffer);
+    charBuffer.clear();
+    return result;
+}
+
 bool Input::mouseDown(int button) {
     return button >= 0 && button < 16 && mouseButtons[button];
 }
+
 bool Input::mousePressed(int button) {
     return button >= 0 && button < 16 && mousePressedArr[button];
 }
 
-// Consume mouse delta (resets after each call)
 double Input::consumeMouseDX() { double dx = deltaX; deltaX = 0.0; return dx; }
 double Input::consumeMouseDY() { double dy = deltaY; deltaY = 0.0; return dy; }
 
@@ -89,7 +97,6 @@ void Input::setMouseCaptured(bool captured) {
     mouseCaptured = captured;
     glfwSetInputMode(window, GLFW_CURSOR, captured ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
 
-    // Reset previous mouse positions to avoid jump
     glfwGetCursorPos(window, &prevMouseX, &prevMouseY);
     mouseX = prevMouseX;
     mouseY = prevMouseY;
@@ -99,19 +106,21 @@ void Input::setMouseCaptured(bool captured) {
 
 bool Input::isMouseCaptured() { return mouseCaptured; }
 
-// ---------------- Callbacks ----------------
-
-void Input::characterCallback(GLFWwindow* window, unsigned int codepoint) {
-	chars.insert(codepoint); // Avoids duplicates by nature
+// Callbacks
+void Input::characterCallback(GLFWwindow*, unsigned int codepoint) {
+    charBuffer.push_back(codepoint);
 }
 
 void Input::keyCallback(GLFWwindow*, int key, int, int action, int) {
-    if (key >= 0 && key < 512) keys[key] = (action != GLFW_RELEASE);
+    if (key >= 0 && key < 512) {
+        keys[key] = (action != GLFW_RELEASE);
+    }
 }
 
 void Input::mouseButtonCallback(GLFWwindow*, int button, int action, int) {
-    if (button >= 0 && button < 16)
+    if (button >= 0 && button < 16) {
         mouseButtons[button] = (action != GLFW_RELEASE);
+    }
 }
 
 void Input::scrollCallback(GLFWwindow*, double xoffset, double yoffset) {

@@ -14,6 +14,7 @@
 #include <sstream>
 
 // Text and character utilities
+#include <bitset>
 #include <cctype>
 #include <string>
 

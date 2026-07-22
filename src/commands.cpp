@@ -21,6 +21,12 @@ std::map<std::string, size_t> Commands::validCommands = {
     {"clearchat", 12}
 };
 
+void Commands::executeCommand(const std::string& command, Engine& engine) {
+	std::vector<std::string> args;
+	size_t ID = getCommandID(command, args);
+	executeCommandFromID(ID, args, command, engine);
+}
+
 size_t Commands::getCommandID(std::string command, std::vector<std::string>& outArgs) {
     const std::string prefix = "/";
     size_t ID = 0;
@@ -64,9 +70,8 @@ size_t Commands::getCommandID(std::string command, std::vector<std::string>& out
     return ID;
 }
 
-void Commands::executeCommand(size_t ID, const std::vector<std::string>& args, const std::string& inCMD, Engine& engine) {
+void Commands::executeCommandFromID(size_t ID, const std::vector<std::string>& args, const std::string& inCMD, Engine& engine) {
     std::string result;
-    result += "> ";
 
     switch (ID) {
     case 0: break;  // Invalid, do nothing
@@ -161,8 +166,12 @@ void Commands::executeCommand(size_t ID, const std::vector<std::string>& args, c
             break;
         }
         result += "Available commands:\n";
+        size_t count = 0;
         for (auto& c : validCommands) {
-            result += "/" + c.first + "\n";
+            result += "/" + c.first;
+            if (++count < validCommands.size()) {
+                result += "\n";
+            }
         }
         break;
     }

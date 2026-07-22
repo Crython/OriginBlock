@@ -986,6 +986,7 @@ bool World::isChunkHiddenSolid(const ChunkCoord& c)
     return false;
 }
 
+// Check if a bounding box at a given position collides with any solid blocks in the world.
 bool World::checkCollision(const glm::dvec3& pos, const glm::vec3& dimensions)
 {
     glm::ivec3 min = glm::floor(pos - glm::dvec3(dimensions.x / 2.0, 0.0, dimensions.z / 2.0));
@@ -1003,6 +1004,7 @@ bool World::checkCollision(const glm::dvec3& pos, const glm::vec3& dimensions)
     return false;
 }
 
+// Resolve collisions for an entity at a given position with a given velocity and dimensions.
 void World::resolveCollision(glm::dvec3& pos, glm::vec3& velocity, const glm::vec3& dimensions, bool& onGround)
 {
     onGround = false;
