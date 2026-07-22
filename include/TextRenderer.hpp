@@ -22,6 +22,9 @@ public:
     // Render a string at (x, y) with scale and color
     void renderText(std::string text, float x, float y, float scale, glm::vec3 color, bool useEscapeSequences);
 
+    // Calculate total width of a string in pixels
+    float getTextWidth(const std::string& text, float scale);
+
     // Update screen dimensions
     void setScreenSize(int width, int height);
 

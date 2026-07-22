@@ -255,3 +255,14 @@ void TextRenderer::renderText(std::string text, float x, float y, float scale, g
     glBindTexture(GL_TEXTURE_2D, 0);
     glEnable(GL_CULL_FACE);
 }
+
+float TextRenderer::getTextWidth(const std::string& text, float scale) {
+    float width = 0.0f;
+    for (char c : text) {
+        auto it = characters.find(c);
+        if (it != characters.end()) {
+            width += it->second.advance * scale;
+        }
+    }
+    return width;
+}

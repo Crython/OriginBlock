@@ -496,27 +496,43 @@ void Engine::render()
 
     }
 
-    // Draw Chat (Bottom Left)
-    float chatY = (float)WINDOW_HEIGHT - 27.5f;
+    // Draw Chat
     float lineHeight = 25.0f;
+    float typingBarHeight = lineHeight * 2.0f + 3.0f; // 
 
-    // Background for chat
-    if (isChatOpen || !chatHistory.empty()) {
-        float bgWidth = 425.0f;
-        float bgHeight = (chatHistory.size() + (isChatOpen ? 1 : 0)) * lineHeight + 10.0f;
-        drawRect(5.0f, (float)WINDOW_HEIGHT - bgHeight - 15.0f, bgWidth, bgHeight, glm::vec4(0.0f, 0.0f, 0.0f, 0.5f));
+    // 1. Edge-to-edge background bar for active typing space (only 1 line high when chat is open)
+    if (isChatOpen) {
+        drawRect(0.0f, (float)WINDOW_HEIGHT - typingBarHeight, (float)WINDOW_WIDTH, typingBarHeight, glm::vec4(0.0f, 0.0f, 0.0f, 0.6f));
     }
 
-	// Render the current chat input line with a blinking cursor (TODO: implement blinking)
+    // 2. Chat history background (about 30 characters wide)
+    int displayedHistoryCount = std::min((int)chatHistory.size(), 20);
+    if (displayedHistoryCount > 0) {
+        // Measure ~30 characters width + padding
+        float historyBgWidth = text ? (text->getTextWidth("123456789012345678901234567890", 0.8f) + 20.0f) : 360.0f;
+        float historyBgHeight = displayedHistoryCount * lineHeight + 20.0f;
+
+        float historyBgY = isChatOpen 
+            ? ((float)WINDOW_HEIGHT - typingBarHeight - historyBgHeight)
+            : ((float)WINDOW_HEIGHT - historyBgHeight - 0.0f);
+
+        
+
+        drawRect(0.0f, historyBgY, historyBgWidth, historyBgHeight, glm::vec4(0.0f, 0.0f, 0.0f, 0.5f));
+    }
+
+    // 3. Render text
+    float chatY = (float)WINDOW_HEIGHT - 24.0f;
+
     if (isChatOpen) {
         text->renderText("> " + chatInputString + "_", 10.0f, chatY, 1.0f, glm::vec3(1.0f), false);
         chatY -= lineHeight;
     }
 
-	// Render chat history in reverse order (most recent at the bottom)
-	int messagesDisplayed = 0;
-    for (int i = chatHistory.size() - 1; i >= 0; --i) {
-        if (messagesDisplayed >= MAX_MESSAGES_DISPLAYED) break;
+    int messagesDisplayed = 0;
+    if (isChatOpen && !chatHistory.empty()) chatY -= lineHeight;
+    for (int i = (int)chatHistory.size() - 1; i >= 0; --i) {
+        if (messagesDisplayed >= displayedHistoryCount) break;
         messagesDisplayed++;
 
         text->renderText(chatHistory[i], 10.0f, chatY, 0.8f, glm::vec3(0.9f), true);
