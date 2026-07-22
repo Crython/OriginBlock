@@ -34,7 +34,7 @@ constexpr std::pair<int, int> CHUNK_LOD_LEVEL_DISTANCES[5] = {
     {900, 4},    // 30 * 30
     {2025, 8},   // 45 * 45
     {3600, 16}   // 60 * 60
-}; 
+};
 constexpr int MAX_LOD_RADIUS = 4; // Chunks in this range have to have the highest LOD
 constexpr int MAX_LOD_RADIUS_SQUARED = MAX_LOD_RADIUS * MAX_LOD_RADIUS; // Precalculate the constant
 
@@ -44,7 +44,7 @@ constexpr float GRAVITY = -24.0f;
 /*
 * Jump height formula (in blocks) for GRAVITY as -24.0:
 * height = 0.0225(JUMP_FORCE)^2 - 0.0275(JUMP_FORCE) + 0.058125
-* 
+*
 * force for 1   block  11 + 2sqrt(3421) / 18 = 7.10992
 * fore for 1.25 blocks 11 + sqrt(4321)  / 18 = 7.91492
 * force for 1.5 blocks 15 + sqrt(5221)  / 18 = 8.63961

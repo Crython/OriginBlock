@@ -710,7 +710,7 @@ int main()
     engine.overworld.setRandSeed();
     std::cout << "Seed: " << engine.overworld.worldSeed << "\n";
 
-	engine.terrain.initVoronoi(engine.overworld.worldSeed, 1'000, 1'000, -500.0f, -500.0f);
+	engine.terrain.initVoronoi(engine.overworld.worldSeed, 10'000, 10'000, -5000.0f, -5000.0f);
     engine.overworld.updateLoadedChunks(engine.playerCamera.position, engine.viewDir, engine.overworld.worldSeed);
 
 
