@@ -90,6 +90,28 @@ Biome::BiomeParams Biome::getParams(Biome::BiomeType b)
     return { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
 }
 
+Biome::BiomeType Biome::assignRandomBiome(int seed) {
+    int rnd = static_cast<int>(Noise::heightNoise2D(static_cast<float>(seed), 0.0f, seed) * 14);  // Limit to 14 for defined cases
+    switch (rnd % 14) {
+    case 0: return Biome::BiomeType::WarmOcean;  // Optional: Bias some to ocean if needed
+    case 1: return Biome::BiomeType::ArticOcean;
+    case 2: return Biome::BiomeType::Desert;
+    case 3: return Biome::BiomeType::Savanna;
+    case 4: return Biome::BiomeType::Jungle;
+    case 5: return Biome::BiomeType::Plains;
+    case 6: return Biome::BiomeType::Woodland;
+    case 7: return Biome::BiomeType::Forest;
+    case 8: return Biome::BiomeType::Tundra;
+    case 9: return Biome::BiomeType::SnowyTaiga;
+    case 10: return Biome::BiomeType::Mountains;
+    case 11: return Biome::BiomeType::Badlands;
+    case 12: return Biome::BiomeType::Volcano;
+    case 13: return Biome::BiomeType::Ocean;
+    // Fallback to a valid biome
+    default: return Biome::BiomeType::Plains;  // Safety net, though %14 should prevent this
+    }
+}
+
 const char* Biome::biomeToString(Biome::BiomeType b) {
     switch (b) {
     case Biome::BiomeType::None: return "None";

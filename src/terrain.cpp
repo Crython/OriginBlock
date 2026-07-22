@@ -412,7 +412,20 @@ void Terrain::generate( const ChunkCoord& chunkPos, const int seed, _Block(*bloc
     }
     placeTreesInChunk(chunkPos.x, chunkPos.y, chunkPos.z, CHUNK_SIZE, seed, blocks, colData);
 }
-// Simulate neighbor trees to handle overhangs
+
+
+/*
+ * Place trees in the specified chunk.
+ * Amount of trees placed in the chunk is determined by the biome's tree density and a global multiplier.
+ * 
+ * @param chunkX Chunk X coordinate
+ * @param chunkY Chunk Y coordinate
+ * @param chunkZ Chunk Z coordinate
+ * @param chunkSize Size of the chunk (same as constant CHUNK_SIZE)
+ * @param seed Random seed for tree placement
+ * @param blocks 3D array of blocks in the chunk
+ * @param centerColData Shared pointer to the column data for the chunk
+ */
 void Terrain::placeTreesInChunk( int chunkX, int chunkY, int chunkZ, int chunkSize, int seed, _Block(*blocks)[CHUNK_SIZE][CHUNK_SIZE], const std::shared_ptr<ColumnData>& centerColData)
 {
     // Iterate 3x3 neighborhood (including center)
@@ -485,6 +498,19 @@ void Terrain::placeTreesInChunk( int chunkX, int chunkY, int chunkZ, int chunkSi
         }
     }
 }
+
+/*
+ * Place a single tree at the specified local coordinates.
+ * If the trunk's position is outside the chunk, we won't return early, as it's leaves may still be in the chunk
+ * 
+ * TODO: Add biome-specific tree types and variations (e.g., pine, oak, birch) based on the biome parameter.
+ * 
+ * @param x Local X coordinate in the chunk (can be outside 0-15 for overhangs)
+ * @param y Local Y coordinate in the chunk
+ * @param z Local Z coordinate in the chunk
+ * @param rng Random number generator seed
+ * @param blocks internal 3D array of blocks for the chunk
+ */
 void Terrain::placeTreeAt(int x, int y, int z, uint32_t& rng, _Block(*blocks)[CHUNK_SIZE][CHUNK_SIZE])
 {
     // No early return for X/Z
@@ -546,28 +572,6 @@ uint32_t Terrain::setRandSeed(void* instancePtr) {
 }
 
 
-Biome::BiomeType Terrain::assignRandomBiome(int seed) {
-    int rnd = static_cast<int>(Noise::heightNoise2D(static_cast<float>(seed), 0.0f, seed) * 14);  // Limit to 14 for defined cases
-    switch (rnd % 14) {
-    case 0: return Biome::BiomeType::WarmOcean;  // Optional: Bias some to ocean if needed
-    case 1: return Biome::BiomeType::ArticOcean;
-    case 2: return Biome::BiomeType::Desert;
-    case 3: return Biome::BiomeType::Savanna;
-    case 4: return Biome::BiomeType::Jungle;
-    case 5: return Biome::BiomeType::Plains;
-    case 6: return Biome::BiomeType::Woodland;
-    case 7: return Biome::BiomeType::Forest;
-    case 8: return Biome::BiomeType::Tundra;
-    case 9: return Biome::BiomeType::SnowyTaiga;
-    case 10: return Biome::BiomeType::Woodland; //Biome::BiomeType::Mountains; Favor non-mountain biomes for developing
-    case 11: return Biome::BiomeType::Badlands;
-    case 12: return Biome::BiomeType::Volcano;
-    case 13: return Biome::BiomeType::Ocean;  // Fallback to a valid biome
-    default: return Biome::BiomeType::Plains;  // Safety net, though %14 should prevent this
-    }
-}
-
-
 /**
  * Sample the biome at a specific cell position.
  * Uses domain-warped Voronoi nearest-neighbor with jittered boundaries.
@@ -590,6 +594,8 @@ void normalize3(float& a, float& b, float& c) {
         c /= sum;
     }
 }
+
+
 
 void Terrain::writeChunkHeightmapPNG(int startChunkX, int startChunkZ, int chunkCountX, int chunkCountZ, int chunkSize, int seed, const char* filename)
 {

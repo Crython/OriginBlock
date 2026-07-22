@@ -2,6 +2,7 @@
 #define BIOME_HPP
 
 #include "pch.h"
+#include "noise.hpp"
 
 class Biome {
 public:
@@ -38,6 +39,8 @@ public:
     // Determines the biome from climate parameters.
     // temp, moisture, weird, continent are all in [0, 1].
     static BiomeType computeBiomeFromClimate(float temp, float moisture, float weird, float continent);
+    static BiomeType assignRandomBiome(int seed);
+
     static const char* biomeToString(BiomeType b);
 
 };
