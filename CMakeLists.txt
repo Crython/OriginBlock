@@ -1,4 +1,4 @@
-﻿# CMakeList.txt : CMake project for OriginBlock , include source and define
+# CMakeList.txt : CMake project for OriginBlock , include source and define
 # project specific logic here.
 #
 
@@ -61,7 +61,7 @@ find_package(OpenGL REQUIRED)
 find_package(Threads REQUIRED)
 
 # Add executable
-add_executable(OriginBlock "src/OriginBlock.cpp" "src/glad/glad.c" "src/shader.cpp" "src/inputs.cpp" "src/textureManager.cpp" "src/texture.cpp" "src/stb_image.cpp" "src/chunk.cpp" "src/Worlds.cpp" "src/terrain.cpp" "src/commands.cpp" "src/ThreadedChunkSystem.cpp" "src/TextRenderer.cpp" "src/pch.cpp")
+add_executable(OriginBlock "src/OriginBlock.cpp" "src/glad/glad.c" "src/shader.cpp" "src/inputs.cpp" "src/textureManager.cpp" "src/texture.cpp" "src/stb_image.cpp" "src/chunk.cpp" "src/Worlds.cpp" "src/terrain.cpp" "src/noise.cpp" "src/commands.cpp" "src/ThreadedChunkSystem.cpp" "src/TextRenderer.cpp" "src/pch.cpp")
 
 # Include headers
 target_include_directories(OriginBlock PRIVATE ${PROJECT_SOURCE_DIR}/include)
