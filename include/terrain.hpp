@@ -6,7 +6,7 @@
 #include "noise.hpp"
 #include "biome.hpp"
 #include "voronoi.hpp"
-
+#include "heightfield.hpp"
 
 
 
@@ -15,11 +15,7 @@ class Terrain {
 public:
 	Biome biome;
 
-    struct ColumnData {
-        uint16_t heightMap[CHUNK_SIZE][CHUNK_SIZE];
-        uint16_t maxHeight;
-        Biome::BiomeType biome;
-    };
+   
 
     // Use pointer to 3D array of _Block with CHUNK_SIZE in each dimension
     static void generate(const ChunkCoord& chunkPos, const int seed, _Block (*blocks)[CHUNK_SIZE][CHUNK_SIZE]);
@@ -35,7 +31,7 @@ public:
 	}
 
 
-    static std::shared_ptr<ColumnData> getOrGenerateColumn(int x, int z, int seed);
+    static std::shared_ptr<HeightField::ColumnData> getOrGenerateColumn(int x, int z, int seed);
 
 private:
 
@@ -44,15 +40,12 @@ private:
 
     static Biome::BiomeType assignRandomBiome(int seed);
     static uint32_t chunkSeed(const ChunkCoord& c, int seed);
-    static int generateHeight(int worldX, int worldZ, const Biome::BiomeParams& biome, int seed);
-    static void capRidges(ColumnData& heightmap, ColumnData* west = nullptr, ColumnData* east = nullptr, ColumnData* north = nullptr, ColumnData* south = nullptr);
-    static void thermalErosion(ColumnData& heightmap, ColumnData* west = nullptr, ColumnData* east = nullptr, ColumnData* north = nullptr, ColumnData* south = nullptr);
 
     static float terrace(float h, float step, float strength);
-    static void placeTreesInChunk(int chunkX, int chunkY, int chunkZ, int chunkSize, int seed, _Block(*blocks)[CHUNK_SIZE][CHUNK_SIZE], const std::shared_ptr<ColumnData>& colData);
+    static void placeTreesInChunk(int chunkX, int chunkY, int chunkZ, int chunkSize, int seed, _Block(*blocks)[CHUNK_SIZE][CHUNK_SIZE], const std::shared_ptr<HeightField::ColumnData>& colData);
     static void placeTreeAt(int x, int y, int z, uint32_t& rng, _Block(*blocks)[CHUNK_SIZE][CHUNK_SIZE]);
 
-    static std::unordered_map<uint64_t, std::shared_ptr<ColumnData>> columnCache; 
+    static std::unordered_map<uint64_t, std::shared_ptr<HeightField::ColumnData>> columnCache; 
     static std::mutex cacheMutex;
 
     static uint64_t packCoords(int x, int z) {

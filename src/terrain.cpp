@@ -16,6 +16,7 @@
  * 4. Ridged: High frequency with ridge inversion for mountains
  */
 #include "pch.h"
+#include "helpers.hpp"
 #include "terrain.hpp"
 #include "voronoi.hpp"
 
@@ -30,10 +31,6 @@ constexpr float CLIMATE_FREQUENCY = 0.005f;      // Temperature and moisture var
 constexpr float WARP_FREQUENCY_LOW = 0.005f;     // Large-scale domain warping
 constexpr float WARP_FREQUENCY_HIGH = 0.02f;     // Detail domain warping
 constexpr float WEIRD_FREQUENCY = 0.003f;        // Mountain/weirdness indicator
-
-// Terrain erosion parameters
-constexpr int TALUS = 3;        // max allowed height difference
-constexpr int EROSION_PASSES = 2;
 
 // Amplitude/blend weights for noise combination
 constexpr float CONTINENT_WEIGHT = 0.7f;         // Continental noise contribution
@@ -53,205 +50,22 @@ constexpr float BEACH_NOISE_SCALE = 0.06f;       // Coastline variation
 // Voronoi jitter
 constexpr float VORONOI_JITTER = 0.7f;           // Site position randomization (0-1)
 
-// Limits
-constexpr float MAX_TERRAIN_HEIGHT = 1024.0f;        // Maximum terrain height in blocks
-constexpr float BASE_TERRAIN_HEIGHT = 48.0f;        // Base terrain height in blocks
-constexpr float MIN_TERRAIN_HEIGHT = 32.0f;         // Minimum terrain height in blocks
-constexpr float INV_MAX_MOUNTAIN_ADD = 1.0f / MAX_TERRAIN_HEIGHT;
 
 
 // Terrain foliage parameters
 float TREE_DENSITY_MULTIPLIER = 1.0f;   // Global tree density multiplier
 
-std::unordered_map<uint64_t, std::shared_ptr<Terrain::ColumnData>> Terrain::columnCache;
+std::unordered_map<uint64_t, std::shared_ptr<HeightField::ColumnData>> Terrain::columnCache;
 std::mutex Terrain::cacheMutex;
 
-// Clamps a floating-point value to ensure it stays within the range [0.0, 1.0].
-inline float clamp01(float v) {
-    return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
-}
-
-// Remaps a floating-point value from a standard range of [-1.0, 1.0] to a range of [0.0, 1.0].
-inline float remap01(float v) {
-    return v * 0.5f + 0.5f; // [-1,1] -> [0,1]
-}
-
-// Performs smooth Hermite interpolation between 0.0 and 1.0 based on an input progress variable.
-inline float smoothstep(float t) {
-    return t * t * (3.0f - 2.0f * t);
-}
-
-// Restricts a height delta value to stay within a specified maximum slope range.
-inline float slopeLimit(float delta, float maxSlope) {
-    return std::clamp(delta, -maxSlope, maxSlope);
-}
-
-// Calculates the magnitude of the local terrain slope gradient using adjacent height samples.
-inline float slopeMagnitude(float h, float hx, float hz) {
-    float dx = h - hx;
-    float dz = h - hz;
-    return std::sqrt(dx * dx + dz * dz);
-}
-
-// Dynamically flattens/squashes extreme terrain heights that exceed a specified threshold from the center.
-inline float compressHeight(float h, float center, float maxDelta) {
-    float d = h - center;
-
-    if (std::abs(d) <= maxDelta)
-        return h;
-
-    float sign = (d > 0.0f) ? 1.0f : -1.0f;
-    float excess = std::abs(d) - maxDelta;
-
-    // Nonlinear compression
-    excess = std::sqrt(excess);
-
-    return center + sign * (maxDelta + excess);
-}
-
-
-
-/*
- * Generate terrain height at a world coordinate.
- * Combines biome parameters with multi-octave noise for varied terrain.
- */
-int Terrain::generateHeight(int worldX, int worldZ, const Biome::BiomeParams& biome, int seed)
-{
-    // 1. Cast integers to floats exactly once at the top.
-    // Implicit conversions inside function calls can sometimes add overhead.
-    const float fx = static_cast<float>(worldX);
-    const float fz = static_cast<float>(worldZ);
-
-    // 2. High peaks, but changes slowly
-    float continentNoise = remap01(Noise::openSimplex2(fx * 0.0008f, fz * 0.0008f, seed + 11));
-    float continent = smoothstep(continentNoise);
-    continent *= continent;
-
-    // 3. Main terrain shape
-    float baseNoise = remap01(Noise::openSimplex2(fx * 0.004f, fz * 0.004f, seed + 23));
-    float height = biome.baseHeight + baseNoise * biome.amplitude * 0.35f;
-    height *= continent;
-
-    // 4. Do extra continent shaping for mountains
-    if (biome.mountainStrength > 0.0f) {
-        float mountainMask = remap01(Noise::openSimplex2(fx * 0.0015f, fz * 0.0015f, seed + 47));
-
-        // Fold the multiplication into the smoothstep output immediately
-        mountainMask = smoothstep(mountainMask) * biome.mountainStrength;
-
-        // Height-relative taper using multiplication instead of division
-        float relative = clamp01((height - biome.baseHeight) * INV_MAX_MOUNTAIN_ADD);
-
-        // Aggressive taper
-        float taper = 1.0f - (relative * relative * relative);
-
-        height += mountainMask * MAX_TERRAIN_HEIGHT * taper;
-    }
-
-    // 5. Cache the shared frequency coordinate! 
-    // Both 'detail' and 'ridgedNoise' use fx * 0.02f. Calculate it once.
-    const float detailX = fx * 0.02f;
-
-    // Fine detail
-    height += Noise::openSimplex2(detailX, fz * 0.02f, seed + 91) * 2.5f;
-    height += BASE_TERRAIN_HEIGHT;
-
-    // Slight ridged noise for sharpness
-    height += Noise::ridgedNoise(detailX, fz * 0.019f, seed);
-
-    // Clamp to valid and reasonable range
-    return static_cast<int>(std::clamp(height, (float)MIN_TERRAIN_HEIGHT, (float)MAX_TERRAIN_HEIGHT));
-}
-
-
-float Terrain::terrace(float h, float step, float strength)
-{
-    float base = floor(h / step) * step;
-    float frac = (h - base) / step;
-
-    // Smooth transition between steps
-    frac = frac * frac * (3.0f - 2.0f * frac);
-
-    return base + frac * step * strength;
-}
 
 void Terrain::clearCache() {
     std::lock_guard<std::mutex> lock(cacheMutex);
     columnCache.clear();
 }
 
-void Terrain::capRidges(ColumnData& heightmap, ColumnData* west, ColumnData* east, ColumnData* north, ColumnData* south)
-{
-    const float RIDGE_CAP = 8.0f;
-    for (int x = 0; x < CHUNK_SIZE; x++) {
-        for (int z = 0; z < CHUNK_SIZE; z++) {
-            float h = (float)heightmap.heightMap[x][z];
-
-            // Check 4 directions for hard ridge capping
-            struct { int dx, dz; ColumnData* col; } neighbors[4] = {
-                { 1, 0,  (x < CHUNK_SIZE - 1) ? &heightmap : east },
-                {-1, 0,  (x > 0) ? &heightmap : west },
-                { 0, 1,  (z < CHUNK_SIZE - 1) ? &heightmap : south },
-                { 0,-1,  (z > 0) ? &heightmap : north }
-            };
-
-            for (int i = 0; i < 4; i++) {
-                if (!neighbors[i].col) continue;
-
-                int nx = (x + neighbors[i].dx + CHUNK_SIZE) % CHUNK_SIZE;
-                int nz = (z + neighbors[i].dz + CHUNK_SIZE) % CHUNK_SIZE;
-                
-                float nh = (float)neighbors[i].col->heightMap[nx][nz];
-                h = nh + slopeLimit(h - nh, RIDGE_CAP);
-            }
-            heightmap.heightMap[x][z] = (uint16_t)h;
-        }
-    }
-}
-
-void Terrain::thermalErosion(ColumnData& heightmap, ColumnData* west, ColumnData* east, ColumnData* north, ColumnData* south)
-{
-    for (int pass = 0; pass < EROSION_PASSES; pass++) {
-        for (int x = 0; x < CHUNK_SIZE; x++) {
-            for (int z = 0; z < CHUNK_SIZE; z++) {
-                int current = heightmap.heightMap[x][z];
-
-                // Check 4 directions: East, West, South, North
-                struct { int dx, dz; ColumnData* col; bool isInternal; } neighbors[4] = {
-                    { 1, 0,  (x < CHUNK_SIZE - 1) ? &heightmap : east,  (x < CHUNK_SIZE - 1) },
-                    {-1, 0,  (x > 0) ? &heightmap : west,               (x > 0) },
-                    { 0, 1,  (z < CHUNK_SIZE - 1) ? &heightmap : south, (z < CHUNK_SIZE - 1) },
-                    { 0,-1,  (z > 0) ? &heightmap : north,              (z > 0) }
-                };
-
-                for (int i = 0; i < 4; i++) {
-                    if (!neighbors[i].col) continue;
-
-                    int nx = (x + neighbors[i].dx + CHUNK_SIZE) % CHUNK_SIZE;
-                    int nz = (z + neighbors[i].dz + CHUNK_SIZE) % CHUNK_SIZE;
-                    
-                    uint16_t* nPtr = &neighbors[i].col->heightMap[nx][nz];
-                    int diff = current - *nPtr;
-
-                    if (diff > TALUS) {
-                        int move = (diff - TALUS) / 2;
-                        heightmap.heightMap[x][z] -= move;
-                        current -= move; // Update current to reflect change for next neighbor
-                        
-                        // Only mutate if the neighbor is within the same column
-                        if (neighbors[i].isInternal) {
-                            *nPtr += move;
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-
 // Return shared_ptr to avoid large copies and ensure pointer stability
-std::shared_ptr<Terrain::ColumnData> Terrain::getOrGenerateColumn(int chunkX, int chunkZ, int seed) {
+std::shared_ptr<HeightField::ColumnData> Terrain::getOrGenerateColumn(int chunkX, int chunkZ, int seed) {
     uint64_t key = packCoords(chunkX, chunkZ);
 
     {
@@ -263,14 +77,14 @@ std::shared_ptr<Terrain::ColumnData> Terrain::getOrGenerateColumn(int chunkX, in
     }
 
     // Generate if not found - allocate on heap immediately
-    auto data = std::make_shared<ColumnData>();
+    auto data = std::make_shared<HeightField::ColumnData>();
     
     Biome::BiomeType chunkBiome = Voronoi::sampleBiomeCell(chunkX, chunkZ, seed);
 	Biome::BiomeParams biomeParams = Voronoi::sampleBlendedBiomeParams(chunkX * CHUNK_SIZE + CHUNK_SIZE / 2, chunkZ * CHUNK_SIZE + CHUNK_SIZE / 2, seed);
     data->biome = chunkBiome; 
 
     // Retrieve neighbors from cache to handle slope-aware attenuation across chunk boundaries
-    std::shared_ptr<ColumnData> westCol = nullptr, eastCol = nullptr, northCol = nullptr, southCol = nullptr;
+    std::shared_ptr<HeightField::ColumnData> westCol = nullptr, eastCol = nullptr, northCol = nullptr, southCol = nullptr;
     {
         std::lock_guard<std::mutex> lock(cacheMutex);
         auto itW = columnCache.find(packCoords(chunkX - 1, chunkZ));
@@ -287,7 +101,7 @@ std::shared_ptr<Terrain::ColumnData> Terrain::getOrGenerateColumn(int chunkX, in
     int maxHeightFound = 0;
     for (int x = 0; x < CHUNK_SIZE; x++) {
         for (int z = 0; z < CHUNK_SIZE; z++) {
-            uint16_t h = (uint16_t)generateHeight(chunkX * CHUNK_SIZE + x, chunkZ * CHUNK_SIZE + z, biomeParams, seed);
+            uint16_t h = (uint16_t)HeightField::generateHeight(chunkX * CHUNK_SIZE + x, chunkZ * CHUNK_SIZE + z, biomeParams, seed);
             data->heightMap[x][z] = h;
 
             maxHeightFound = (h > maxHeightFound) ? h : maxHeightFound; // get the highest pointin that XZ position
@@ -308,25 +122,25 @@ std::shared_ptr<Terrain::ColumnData> Terrain::getOrGenerateColumn(int chunkX, in
             // West neighbor (x-1)
             if (x > 0) hx = (float)data->heightMap[x - 1][z];
             else if (westCol) hx = (float)westCol->heightMap[CHUNK_SIZE - 1][z];
-            else hx = (float)generateHeight(worldX - 1, worldZ, biomeParams, seed);
+            else hx = (float)HeightField::generateHeight(worldX - 1, worldZ, biomeParams, seed);
 
             // East neighbor (x+1)
             if (x < CHUNK_SIZE - 1) he = (float)data->heightMap[x + 1][z];
             else if (eastCol) he = (float)eastCol->heightMap[0][z];
-            else he = (float)generateHeight(worldX + 1, worldZ, biomeParams, seed);
+            else he = (float)HeightField::generateHeight(worldX + 1, worldZ, biomeParams, seed);
 
             // North neighbor (z-1)
             if (z > 0) hz = (float)data->heightMap[x][z - 1];
             else if (northCol) hz = (float)northCol->heightMap[x][CHUNK_SIZE - 1];
-            else hz = (float)generateHeight(worldX, worldZ - 1, biomeParams, seed);
+            else hz = (float)HeightField::generateHeight(worldX, worldZ - 1, biomeParams, seed);
 
             // South neighbor (z+1)
             if (z < CHUNK_SIZE - 1) hs = (float)data->heightMap[x][z + 1];
             else if (southCol) hs = (float)southCol->heightMap[x][0];
-            else hs = (float)generateHeight(worldX, worldZ + 1, biomeParams, seed);
+            else hs = (float)HeightField::generateHeight(worldX, worldZ + 1, biomeParams, seed);
 
             // Hard ridge cap
-            float slope = slopeMagnitude(h, hx, hz);
+            float slope = Helpers::slopeMagnitude(h, hx, hz);
             const float RIDGE_MAX = 8.0f;
             if (slope > RIDGE_MAX) {
                 float excess = slope - RIDGE_MAX;
@@ -334,10 +148,10 @@ std::shared_ptr<Terrain::ColumnData> Terrain::getOrGenerateColumn(int chunkX, in
             }
 
             // Sequential slope limiting
-            h = hx + slopeLimit(h - hx, 3.0f);
-            h = he + slopeLimit(h - he, 3.0f);
-            h = hz + slopeLimit(h - hz, 3.0f);
-            h = hs + slopeLimit(h - hs, 3.0f);
+            h = hx + Helpers::slopeLimit(h - hx, 3.0f);
+            h = he + Helpers::slopeLimit(h - he, 3.0f);
+            h = hz + Helpers::slopeLimit(h - hz, 3.0f);
+            h = hs + Helpers::slopeLimit(h - hs, 3.0f);
 
             data->heightMap[x][z] = (uint16_t)h;
         }
@@ -345,10 +159,10 @@ std::shared_ptr<Terrain::ColumnData> Terrain::getOrGenerateColumn(int chunkX, in
 
 
     // Step 3: Hard ridge cap at 8 blocks
-    capRidges(*data, westCol.get(), eastCol.get(), northCol.get(), southCol.get());
+    HeightField::capRidges(*data, westCol.get(), eastCol.get(), northCol.get(), southCol.get());
 
     // Step 4: Apply thermal erosion with boundary awareness
-    thermalErosion(*data, westCol.get(), eastCol.get(), northCol.get(), southCol.get());
+    HeightField::thermalErosion(*data, westCol.get(), eastCol.get(), northCol.get(), southCol.get());
 
     {
         std::lock_guard<std::mutex> lock(cacheMutex);
@@ -426,7 +240,7 @@ void Terrain::generate( const ChunkCoord& chunkPos, const int seed, _Block(*bloc
  * @param blocks 3D array of blocks in the chunk
  * @param centerColData Shared pointer to the column data for the chunk
  */
-void Terrain::placeTreesInChunk( int chunkX, int chunkY, int chunkZ, int chunkSize, int seed, _Block(*blocks)[CHUNK_SIZE][CHUNK_SIZE], const std::shared_ptr<ColumnData>& centerColData)
+void Terrain::placeTreesInChunk( int chunkX, int chunkY, int chunkZ, int chunkSize, int seed, _Block(*blocks)[CHUNK_SIZE][CHUNK_SIZE], const std::shared_ptr<HeightField::ColumnData>& centerColData)
 {
     // Iterate 3x3 neighborhood (including center)
     for (int dx = -1; dx <= 1; ++dx) {
@@ -570,32 +384,6 @@ uint32_t Terrain::setRandSeed(void* instancePtr) {
 
     return combined;
 }
-
-
-/**
- * Sample the biome at a specific cell position.
- * Uses domain-warped Voronoi nearest-neighbor with jittered boundaries.
- * Ocean biomes override Voronoi cells below the continent threshold.
- */
-float gammaCurve(float x, float gamma) {
-    return std::pow(x, gamma);
-}
-
-// Sigmoid function centered at 0.5 with adjustable steepness
-float sigmoidCurve(float x, float steepness = 10.0f) {
-    return 1.0f / (1.0f + std::exp(-steepness * (x - 0.5f)));
-}
-// Normalize three floats so their sum is 1 (if sum > 0)
-void normalize3(float& a, float& b, float& c) {
-    float sum = a + b + c;
-    if (sum > 0.0f) {
-        a /= sum;
-        b /= sum;
-        c /= sum;
-    }
-}
-
-
 
 void Terrain::writeChunkHeightmapPNG(int startChunkX, int startChunkZ, int chunkCountX, int chunkCountZ, int chunkSize, int seed, const char* filename)
 {
