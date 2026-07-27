@@ -16,39 +16,7 @@
  * 4. Ridged: High frequency with ridge inversion for mountains
  */
 #include "pch.h"
-#include "helpers.hpp"
 #include "terrain.hpp"
-#include "voronoi.hpp"
-
-// ***************************
-// NOISE GENERATION CONSTANTS
-// ***************************
-
-// Frequency scales for different noise layers
-constexpr float CONTINENT_FREQUENCY = 0.0001f;  // Largest landmass features
-constexpr float REGIONAL_FREQUENCY = 0.01f;      // Hills and broad valleys
-constexpr float CLIMATE_FREQUENCY = 0.005f;      // Temperature and moisture variation
-constexpr float WARP_FREQUENCY_LOW = 0.005f;     // Large-scale domain warping
-constexpr float WARP_FREQUENCY_HIGH = 0.02f;     // Detail domain warping
-constexpr float WEIRD_FREQUENCY = 0.003f;        // Mountain/weirdness indicator
-
-// Amplitude/blend weights for noise combination
-constexpr float CONTINENT_WEIGHT = 0.7f;         // Continental noise contribution
-constexpr float REGIONAL_WEIGHT = 0.3f;          // Regional noise contribution
-constexpr float CONTINENT_BOOST = 2.0f;          // Contrast boost exponent
-constexpr float CONTINENT_SCALE = 1.17f;         // Final continent multiplier
-
-// Domain warping parameters
-constexpr float WARP_AMPLITUDE_LOW = 40.0f;      // Large displacement
-constexpr float WARP_AMPLITUDE_HIGH = 8.0f;      // Fine displacement
-
-// Biome system parameters
-constexpr int BIOME_CELL_SIZE = 64;              // Base grid size for biomes (in blocks)
-constexpr float OCEAN_THRESHOLD = 0.27f;         // Continent value below which is ocean
-constexpr float BEACH_NOISE_SCALE = 0.06f;       // Coastline variation
-
-// Voronoi jitter
-constexpr float VORONOI_JITTER = 0.7f;           // Site position randomization (0-1)
 
 // Procedural generation of chunk blocks
 void Terrain::generate( const ChunkCoord& chunkPos, const int seed, _Block(*blocks)[CHUNK_SIZE][CHUNK_SIZE])
@@ -61,9 +29,12 @@ void Terrain::generate( const ChunkCoord& chunkPos, const int seed, _Block(*bloc
     // The maximum height in this chunk column in chunk-space
     int maxBlockYInChunkPOS = Noise::floorDiv(colData->maxHeight, CHUNK_SIZE);
 
-    // The chunk is above the highest point in the column - chunk will be empty
-    if (chunkPos.y > maxBlockYInChunkPOS + 1) return; // Slight padding because trees aren't included in the max height calculations
+    // Padding to avoid generating chunks that are too far above the terrain
+    // No tree or structure can be chunkExclusionPadding * ChunkSize(16) blocks tall, as the rest won't be generated
+	constexpr int chunkExclusionPadding = 2;
 
+    // The chunk is above the highest point in the column - chunk will be empty
+    if (chunkPos.y > maxBlockYInChunkPOS + chunkExclusionPadding) return; // Slight padding because trees aren't included in the max height calculations
     
     int worldYHalf = chunkPos.y * CHUNK_SIZE;
 

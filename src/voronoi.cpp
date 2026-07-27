@@ -2,6 +2,7 @@
 #include "voronoi.hpp"
 
 // Voronoi-local constants (climate frequencies now live in biome.cpp via Biome::sampleClimate)
+constexpr float VORONOI_JITTER = 0.7f;           // Site position randomization (0-1)
 constexpr float VORONOI_JITTER_V  = 0.7f;
 constexpr float OCEAN_THRESHOLD_V = 0.27f;
 constexpr float BIOME_CELL_SIZE_V = 64.0f;

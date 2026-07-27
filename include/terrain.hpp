@@ -2,8 +2,6 @@
 #define TERRAIN_HPP
 
 #include "chunkHandler.hpp"
-#include "noise.hpp"
-#include "biome.hpp"
 #include "voronoi.hpp"
 #include "heightfield.hpp"
 #include "column_cache.hpp"
@@ -14,9 +12,6 @@
 // Fix: Use correct 3D array type for blocks parameter
 class Terrain {
 public:
-	Biome biome;
-
-   
 
     // Use pointer to 3D array of _Block with CHUNK_SIZE in each dimension
     static void generate(const ChunkCoord& chunkPos, const int seed, _Block (*blocks)[CHUNK_SIZE][CHUNK_SIZE]);
@@ -24,6 +19,7 @@ public:
     // Generate a pseudo random unsigned integer
     static uint32_t setRandSeed(void* instancePtr);
     
+
     // Wrapper functions
 	static void initVoronoi(int seed, int numSites, float mapSize, float startX, float startZ) {
 		Voronoi::initVoronoi(seed, numSites, mapSize, startX, startZ);
@@ -31,20 +27,7 @@ public:
     static std::shared_ptr<HeightField::ColumnData> getOrGenerateColumn(int x, int z, int seed) {
 		return ColumnCache::getOrGenerateColumn(x, z, seed);
     }
-
-
-
-private:
-
-
-    static Biome::BiomeType assignRandomBiome(int seed);
-    static uint32_t chunkSeed(const ChunkCoord& c, int seed);
-
-    static float terrace(float h, float step, float strength);
     
 };
-
-
-
 
 #endif // TERRAIN_HPP
