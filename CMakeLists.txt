@@ -51,6 +51,7 @@ if (MSVC)
 endif()
 
 
+
 # SFML location (adjust to your path)
 set(SFML_DIR "C:/SFML-2.6.0/lib/cmake/SFML")
 
@@ -61,7 +62,11 @@ find_package(OpenGL REQUIRED)
 find_package(Threads REQUIRED)
 
 # Add executable
-add_executable(OriginBlock "src/OriginBlock.cpp" "src/glad/glad.c" "src/shader.cpp" "src/inputs.cpp" "src/textureManager.cpp" "src/texture.cpp" "src/stb_image.cpp" "src/chunk.cpp" "src/Worlds.cpp" "src/terrain.cpp" "src/noise.cpp" "src/commands.cpp" "src/ThreadedChunkSystem.cpp" "src/TextRenderer.cpp" "src/pch.cpp" "src/biome.cpp" "src/voronoi.cpp" "src/heightfield.cpp" "src/column_cache.cpp")
+add_executable(OriginBlock "src/OriginBlock.cpp" "src/glad/glad.c" "src/shader.cpp" "src/inputs.cpp" "src/textureManager.cpp" "src/texture.cpp" "src/stb_image.cpp" "src/chunk.cpp" "src/Worlds.cpp" "src/terrain.cpp" "src/noise.cpp" "src/commands.cpp" "src/ThreadedChunkSystem.cpp" "src/TextRenderer.cpp" "src/pch.cpp" "src/biome.cpp" "src/voronoi.cpp" "src/heightfield.cpp" "src/column_cache.cpp" "src/vegetation.cpp" "src/debug_export.cpp")
+
+# Define DEBUG_EXPORT_ENABLED for Debug builds
+# Uses a generator expression so it works correctly with multi-config generators (e.g. MSVC/Ninja Multi-Config)
+target_compile_definitions(OriginBlock PRIVATE $<$<CONFIG:Debug>:DEBUG_EXPORT_ENABLED>)
 
 # Include headers
 target_include_directories(OriginBlock PRIVATE ${PROJECT_SOURCE_DIR}/include)

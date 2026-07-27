@@ -194,8 +194,14 @@ void Commands::executeCommandFromID(size_t ID, const std::vector<std::string>& a
 
         std::string debugFilenameStr = "heightmaps/heightmap" + std::to_string(engine.overworld.worldSeed) + ".png";
         const char* debugFilename = debugFilenameStr.c_str();
-        engine.terrain.writeChunkHeightmapPNG(std::stoi(args[0]), std::stoi(args[1]), std::stoi(args[2]), std::stoi(args[3]), CHUNK_SIZE, engine.overworld.worldSeed, debugFilename);
+		// Generate the heightmap using the provided arguments
+        DebugExport::writeChunkHeightmapPNG(std::stoi(args[0]), std::stoi(args[1]), std::stoi(args[2]), std::stoi(args[3]), CHUNK_SIZE, engine.overworld.worldSeed, debugFilename);
+		// Inform the user about the debug export status
+#ifndef DEBUG_EXPORT_ENABLED
+		std::cerr << "Warning: Debug export is disabled. Heightmap generation will not work." << std::endl;
+#else 
         result += "Generated heightmap: " + debugFilenameStr;
+#endif
         break;
     }
     case 9: { // /tf or /toggleflying

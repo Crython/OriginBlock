@@ -2,12 +2,12 @@
 #define TERRAIN_HPP
 
 #include "chunkHandler.hpp"
-#include "stb/stb_image_write.h"
 #include "noise.hpp"
 #include "biome.hpp"
 #include "voronoi.hpp"
 #include "heightfield.hpp"
 #include "column_cache.hpp"
+#include "vegetation.hpp"
 
 
 
@@ -24,9 +24,6 @@ public:
     // Generate a pseudo random unsigned integer
     static uint32_t setRandSeed(void* instancePtr);
     
-    static void writeChunkHeightmapPNG(int startChunkX, int startChunkZ, int chunkCountX, int chunkCountZ, int chunkSize, int seed, const char* filename);
-    static void writeChunkBiomemapPNG(int startChunkX, int startChunkZ, int chunkCountX, int chunkCountZ, int chunkSize, int seed, const char* filename);
-
     // Wrapper functions
 	static void initVoronoi(int seed, int numSites, float mapSize, float startX, float startZ) {
 		Voronoi::initVoronoi(seed, numSites, mapSize, startX, startZ);
@@ -44,9 +41,7 @@ private:
     static uint32_t chunkSeed(const ChunkCoord& c, int seed);
 
     static float terrace(float h, float step, float strength);
-    static void placeTreesInChunk(int chunkX, int chunkY, int chunkZ, int chunkSize, int seed, _Block(*blocks)[CHUNK_SIZE][CHUNK_SIZE], const std::shared_ptr<HeightField::ColumnData>& colData);
-    static void placeTreeAt(int x, int y, int z, uint32_t& rng, _Block(*blocks)[CHUNK_SIZE][CHUNK_SIZE]);
-
+    
 };
 
 

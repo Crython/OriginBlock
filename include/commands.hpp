@@ -2,6 +2,7 @@
 #define COMMANDS_HPP
 
 #include "Worlds.hpp"
+#include "debug_export.hpp"
 
 // Forward declaration to avoid circular include
 class Engine;
