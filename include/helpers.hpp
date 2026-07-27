@@ -77,7 +77,7 @@ inline float Helpers::clamp01(float v) {
 // Remaps a floating-point value from a standard range of [-1.0, 1.0] to a range of [0.0, 1.0].
 inline float Helpers::remap01(float v) {
     return v * 0.5f + 0.5f; // [-1,1] -> [0,1]
-}
+}  
 
 // Performs smooth Hermite interpolation between 0.0 and 1.0 based on an input progress variable.
 inline float Helpers::smoothstep(float t) {

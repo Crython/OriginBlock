@@ -7,6 +7,11 @@ constexpr float WARP_FREQUENCY_HIGH = 0.02f;     // Detail domain warping
 constexpr float WARP_AMPLITUDE_LOW = 40.0f;      // Large displacement
 constexpr float WARP_AMPLITUDE_HIGH = 8.0f;      // Fine displacement
 
+// Precomputed OpenSimplex2 skew/unskew constants — these are mathematical
+// constants, so they should never be recomputed at runtime.
+static constexpr float OS2_F2 = 0.5f * (1.7320508075688772f - 1.0f);   // (sqrt(3)-1)/2
+static constexpr float OS2_G2 = (3.0f - 1.7320508075688772f) / 6.0f;   // (3-sqrt(3))/6
+
 // Permutation table constants for OpenSimplex2
 static const int8_t perm[] = {
     151,160,137, 91, 90, 15,131, 13,201, 95, 96, 53,194,233,  7,225,
@@ -67,14 +72,11 @@ float Noise::rand01(uint32_t& state) {
 }
 
 float Noise::openSimplex2(float x, float y, int seedOffset) {
-    const float F2 = 0.5f * (std::sqrt(3.0f) - 1.0f);
-    const float G2 = (3.0f - std::sqrt(3.0f)) / 6.0f;
-
-    float s = (x + y) * F2;
+    float s = (x + y) * OS2_F2;
     int i = fastFloor(x + s);
     int j = fastFloor(y + s);
 
-    float t = (i + j) * G2;
+    float t = (i + j) * OS2_G2;
     float X0 = i - t;
     float Y0 = j - t;
     float x0 = x - X0;
@@ -84,10 +86,10 @@ float Noise::openSimplex2(float x, float y, int seedOffset) {
     if (x0 > y0) { i1 = 1; j1 = 0; }
     else { i1 = 0; j1 = 1; }
 
-    float x1 = x0 - i1 + G2;
-    float y1 = y0 - j1 + G2;
-    float x2 = x0 - 1.0f + 2.0f * G2;
-    float y2 = y0 - 1.0f + 2.0f * G2;
+    float x1 = x0 - i1 + OS2_G2;
+    float y1 = y0 - j1 + OS2_G2;
+    float x2 = x0 - 1.0f + 2.0f * OS2_G2;
+    float y2 = y0 - 1.0f + 2.0f * OS2_G2;
 
     auto hashFunc = [&](int px, int py) {
         return Noise::hash(px, py, seedOffset) & 255;

@@ -17,15 +17,22 @@
  */
 #include "pch.h"
 #include "terrain.hpp"
+#include "helpers.hpp"
 
 // Procedural generation of chunk blocks
 void Terrain::generate( const ChunkCoord& chunkPos, const int seed, _Block(*blocks)[CHUNK_SIZE][CHUNK_SIZE])
 {
+	/* Time profiling of terrain generation:
+    6% cache
+    31% block filling
+    63% tree placement
+    */
+
     if (chunkPos.y < 0) return; // No chunks under negative chunkPos
 
     // Retrieve column data (cached shared_ptr)
-    auto colData = ColumnCache::getOrGenerateColumn(chunkPos.x, chunkPos.z, seed);
-    
+	auto colData = ColumnCache::getOrGenerateColumn(chunkPos.x, chunkPos.z, seed); // 3.5 - 6 microseconds
+
     // The maximum height in this chunk column in chunk-space
     int maxBlockYInChunkPOS = Noise::floorDiv(colData->maxHeight, CHUNK_SIZE);
 
@@ -39,7 +46,7 @@ void Terrain::generate( const ChunkCoord& chunkPos, const int seed, _Block(*bloc
     int worldYHalf = chunkPos.y * CHUNK_SIZE;
 
 	// Fill the chunk with blocks based on the heightmap and biome 
-    for (int x = 0; x < CHUNK_SIZE; x++) {
+	for (int x = 0; x < CHUNK_SIZE; x++) { // 17 - 24 microseconds
         for (int z = 0; z < CHUNK_SIZE; z++) {
 
             int height = colData->heightMap[x][z];
@@ -69,11 +76,17 @@ void Terrain::generate( const ChunkCoord& chunkPos, const int seed, _Block(*bloc
             }
         }
     }
-    Vegetation::placeTreesInChunk(chunkPos.x, chunkPos.y, chunkPos.z, CHUNK_SIZE, seed, blocks, colData);
+
+	// Generate trees in the chunk
+    Vegetation::placeTreesInChunk(chunkPos.x, chunkPos.y, chunkPos.z, CHUNK_SIZE, seed, blocks, colData); // 40 - 65 microseconds
 }
 
 uint32_t Terrain::setRandSeed(void* instancePtr) {
     int local_var;
+
+	// Make sure that each call to setRandSeed returns a different value, even if called from the same instancePtr
+    static int offset = 0;
+	local_var = offset++;
 
     // Cast data pointer to uintptr_t
     uintptr_t p1 = reinterpret_cast<uintptr_t>(&local_var);
