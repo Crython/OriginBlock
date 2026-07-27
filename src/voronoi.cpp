@@ -1,23 +1,15 @@
 #include "pch.h"
 #include "voronoi.hpp"
 
-// Frequency scales (shared with terrain.cpp)
-constexpr float CONTINENT_FREQUENCY_V = 0.0001f;
-constexpr float CLIMATE_FREQUENCY_V   = 0.005f;
-constexpr float WEIRD_FREQUENCY_V     = 0.003f;
-constexpr float VORONOI_JITTER_V      = 0.7f;
-constexpr float OCEAN_THRESHOLD_V     = 0.27f;
-constexpr float CONTINENT_SCALE_V     = 1.17f;
-constexpr float BIOME_CELL_SIZE_V     = 64.0f;
+// Voronoi-local constants (climate frequencies now live in biome.cpp via Biome::sampleClimate)
+constexpr float VORONOI_JITTER_V  = 0.7f;
+constexpr float OCEAN_THRESHOLD_V = 0.27f;
+constexpr float BIOME_CELL_SIZE_V = 64.0f;
 
 // Static member definitions
 std::vector<VoronoiSite> Voronoi::voronoiSites;
 VoronoiSpatialGrid Voronoi::voronoiGrid;
 
-// Clamps a floating-point value to [0.0, 1.0].
-static inline float vClamp01(float v) {
-    return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
-}
 
 /**
  * Initialize the Voronoi cell system for biome distribution.
@@ -61,28 +53,11 @@ void Voronoi::initVoronoi(int seed, int numSites, float mapSize, float startX, f
         float wsx = sx, wsz = sz;
         Noise::domainWarp(wsx, wsz, seed + 555);
 
-        // Assign climate parameters using multi-frequency noise
-        const float MAIN_CLIMATE_SCALE = CLIMATE_FREQUENCY_V;
-        const float WEIRD_SCALE        = WEIRD_FREQUENCY_V;
+        // Assign climate parameters via the shared helper
+        Biome::ClimateSample climate = Biome::sampleClimate(wsx, wsz, seed);
 
-        // Temperature: Varies with latitude + noise
-        float temp = 0.2f + 0.3f * std::sin(wsz * 0.0005f) + 0.58f * (Noise::openSimplex2(wsx * MAIN_CLIMATE_SCALE, wsz * MAIN_CLIMATE_SCALE, seed + 731) * 0.5f + 0.5f);
-        temp = vClamp01(temp);
-
-        // Moisture: Independent noise layer
-        float moisture = Noise::openSimplex2(wsx * MAIN_CLIMATE_SCALE * 1.35f, wsz * MAIN_CLIMATE_SCALE * 1.35f, seed + 1249) * 0.5f + 0.5f;
-        moisture = vClamp01(moisture);
-
-        // Weirdness: Ridged noise for mountain/unusual terrain
-        float weird_raw = Noise::openSimplex2(wsx * WEIRD_SCALE, wsz * WEIRD_SCALE, seed + 3791);
-        float weird = Noise::ridge(weird_raw);
-        weird = vClamp01(weird * 1.f);
-
-        // Continental scale: Determines if area is land or ocean
-        float continent = Noise::fbmContinent(wsx, wsz, seed + 5000, CONTINENT_FREQUENCY_V);
-        continent = vClamp01(continent * CONTINENT_SCALE_V);
-
-        Biome::BiomeType siteBiome = Biome::computeBiomeFromClimate(temp, moisture, weird, continent);
+        Biome::BiomeType siteBiome = Biome::computeBiomeFromClimate(
+            climate.temp, climate.moisture, climate.weird, climate.continent);
         size_t siteIdx = voronoiSites.size();
         voronoiSites.push_back({ sx, sz, siteBiome });
 
@@ -156,22 +131,17 @@ Biome::BiomeType Voronoi::sampleBiomeCell(int bx, int bz, int seed) {
         }
     }
 
-    // Global climate parameters for ocean detection
-    float continent = Noise::fbmContinent(wx, wz, seed + 5000, CONTINENT_FREQUENCY_V);
-    continent = vClamp01(continent * CONTINENT_SCALE_V);
-
-    const float CLIMATE_SCALE = CLIMATE_FREQUENCY_V;
-    float temp = 0.2f + 0.3f * std::sin(wz * 0.0005f) + 0.58f * (Noise::openSimplex2(wx * CLIMATE_SCALE, wz * CLIMATE_SCALE, seed + 731) * 0.5f + 0.5f);
-    temp = vClamp01(temp);
+    // Global climate parameters for ocean detection (shared formula via Biome::sampleClimate)
+    Biome::ClimateSample climate = Biome::sampleClimate(wx, wz, seed);
 
     // Dynamic threshold for more natural, noisy coastlines
     float beachNoise = 0.5f; // openSimplex2(wx * 0.1f, wz * 0.1f, seed + 888) * BEACH_NOISE_SCALE;
     float dynamicThreshold = OCEAN_THRESHOLD_V + beachNoise;
 
     // Decision logic using overrides (e.g. Ocean)
-    if (continent < dynamicThreshold) {
-        if (temp > 0.7f) return Biome::BiomeType::WarmOcean;
-        else if (temp < 0.3f) return Biome::BiomeType::ArticOcean;
+    if (climate.continent < dynamicThreshold) {
+        if (climate.temp > 0.7f) return Biome::BiomeType::WarmOcean;
+        else if (climate.temp < 0.3f) return Biome::BiomeType::ArticOcean;
         else return Biome::BiomeType::Ocean;
     }
 

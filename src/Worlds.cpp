@@ -185,7 +185,7 @@ void World::reloadAllChunks(bool regenerate)
 
     if (regenerate) {
         chunks.clear(); // Clear chunks to force generation (performs a reset)
-        Terrain::clearCache();
+        ColumnCache::clearCache();
     }
 
     isUnloading = false;

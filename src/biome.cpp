@@ -4,6 +4,51 @@
 // Must match the value used in terrain.cpp.
 static constexpr float OCEAN_THRESHOLD = 0.27f;
 
+// Frequency constants (kept local; shared semantically with voronoi.cpp).
+static constexpr float CONTINENT_FREQUENCY_B = 0.0001f;
+static constexpr float CLIMATE_FREQUENCY_B   = 0.005f;
+static constexpr float WEIRD_FREQUENCY_B     = 0.003f;
+static constexpr float CONTINENT_SCALE_B     = 1.17f;
+
+// Clamps v to [0, 1].
+static inline float bClamp01(float v) {
+    return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
+}
+
+/**
+ * Sample climate parameters at a world position.
+ * Matches the formulas used in Voronoi::initVoronoi and Voronoi::sampleBiomeCell.
+ * The caller is responsible for any domain-warping it wants applied before calling.
+ */
+Biome::ClimateSample Biome::sampleClimate(float x, float z, int seed) {
+    ClimateSample c;
+
+    // Temperature: latitude-driven sine + noise
+    c.temp = 0.2f + 0.3f * std::sin(z * 0.0005f)
+           + 0.58f * (Noise::openSimplex2(x * CLIMATE_FREQUENCY_B,
+                                          z * CLIMATE_FREQUENCY_B,
+                                          seed + 731) * 0.5f + 0.5f);
+    c.temp = bClamp01(c.temp);
+
+    // Moisture: independent noise layer
+    c.moisture = Noise::openSimplex2(x * CLIMATE_FREQUENCY_B * 1.35f,
+                                     z * CLIMATE_FREQUENCY_B * 1.35f,
+                                     seed + 1249) * 0.5f + 0.5f;
+    c.moisture = bClamp01(c.moisture);
+
+    // Weirdness: ridged noise used for mountains / unusual terrain
+    float weird_raw = Noise::openSimplex2(x * WEIRD_FREQUENCY_B,
+                                          z * WEIRD_FREQUENCY_B,
+                                          seed + 3791);
+    c.weird = bClamp01(Noise::ridge(weird_raw));
+
+    // Continental scale: determines land vs. ocean
+    c.continent = bClamp01(Noise::fbmContinent(x, z, seed + 5000, CONTINENT_FREQUENCY_B)
+                           * CONTINENT_SCALE_B);
+
+    return c;
+}
+
 /*
  * Determine biome from climate parameters.
  * Uses temperature, moisture, weirdness (mountains), and continent values.
