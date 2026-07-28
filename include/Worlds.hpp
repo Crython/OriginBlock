@@ -94,7 +94,7 @@ public:
     std::unique_ptr<ThreadedChunkSystem> chunkThreads;
     
     // Enable/disable threaded chunk loading
-    bool useThreadedChunks = false;
+    bool useThreadedChunks = true;
         
     void setRandSeed();
 

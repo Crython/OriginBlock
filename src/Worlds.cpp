@@ -184,10 +184,11 @@ void World::reloadAllChunks(bool regenerate)
 	unloadedChunks.clear();
 
     if (regenerate) {
-        chunks.clear(); // Clear chunks to force generation (performs a reset)
+        chunks.clear(); // Clear chunks to force generation (performs a reset on the world)
         ColumnCache::clearCache();
     }
 
+	Terrain::clearCounters(); // Reset static terrain generation counters
     isUnloading = false;
     radiusFullApplied = false;
     activePlan.reset();

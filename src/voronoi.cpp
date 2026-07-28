@@ -152,52 +152,38 @@ Biome::BiomeType Voronoi::sampleBiomeCell(int bx, int bz, int seed) {
 
 /*
  * Sample blended biome parameters at a world position.
- * Performs smoothly-interpolated bilinear blending between 4 neighboring biome cells.
- *
- * Optimizations:
- *   1. Early-exit when all 4 corners share the same biome — avoids all blend work.
- *   2. Deduplication of getParams() for corners that share a biome type.
- *   3. Smoothstep on fx/fz to remove linear-ramp seam artifacts for free.
+ * Performs bilinear interpolation between 4 neighboring biome cells.
  */
 Biome::BiomeParams Voronoi::sampleBlendedBiomeParams(int worldX, int worldZ, int seed)
 {
     int bx = Noise::floorDiv(worldX, static_cast<int>(BIOME_CELL_SIZE_V));
     int bz = Noise::floorDiv(worldZ, static_cast<int>(BIOME_CELL_SIZE_V));
 
+    float fx = float(worldX - bx * static_cast<int>(BIOME_CELL_SIZE_V)) / BIOME_CELL_SIZE_V;
+    float fz = float(worldZ - bz * static_cast<int>(BIOME_CELL_SIZE_V)) / BIOME_CELL_SIZE_V;
+
     Biome::BiomeType b00 = sampleBiomeCell(bx,     bz,     seed);
     Biome::BiomeType b10 = sampleBiomeCell(bx + 1, bz,     seed);
     Biome::BiomeType b01 = sampleBiomeCell(bx,     bz + 1, seed);
     Biome::BiomeType b11 = sampleBiomeCell(bx + 1, bz + 1, seed);
 
-    // (1) Early-exit: if all four corners are the same biome, no blending needed.
-    if (b00 == b10 && b00 == b01 && b00 == b11) {
-        return Biome::getParams(b00);
-    }
-
-    // (2) Deduplicate getParams() — only call it once per unique biome type.
     Biome::BiomeParams p00 = Biome::getParams(b00);
-    Biome::BiomeParams p10 = (b10 == b00) ? p00 : Biome::getParams(b10);
-    Biome::BiomeParams p01 = (b01 == b00) ? p00 : (b01 == b10) ? p10 : Biome::getParams(b01);
-    Biome::BiomeParams p11 = (b11 == b00) ? p00 : (b11 == b10) ? p10 : (b11 == b01) ? p01 : Biome::getParams(b11);
-
-    // (3) Smoothstep the fractions to ease in/out at cell boundaries.
-    float fx = float(worldX - bx * static_cast<int>(BIOME_CELL_SIZE_V)) / BIOME_CELL_SIZE_V;
-    float fz = float(worldZ - bz * static_cast<int>(BIOME_CELL_SIZE_V)) / BIOME_CELL_SIZE_V;
-    fx = fx * fx * (3.0f - 2.0f * fx);  // smoothstep(fx)
-    fz = fz * fz * (3.0f - 2.0f * fz);  // smoothstep(fz)
+    Biome::BiomeParams p10 = Biome::getParams(b10);
+    Biome::BiomeParams p01 = Biome::getParams(b01);
+    Biome::BiomeParams p11 = Biome::getParams(b11);
 
     // Bilinear interpolation weights
-    float w00 = (1.0f - fx) * (1.0f - fz);
-    float w10 = fx          * (1.0f - fz);
-    float w01 = (1.0f - fx) * fz;
-    float w11 = fx          * fz;
+    float w00 = (1 - fx) * (1 - fz);
+    float w10 = fx       * (1 - fz);
+    float w01 = (1 - fx) * fz;
+    float w11 = fx       * fz;
 
     Biome::BiomeParams result;
-    result.amplitude        = p00.amplitude        * w00 + p10.amplitude        * w10 + p01.amplitude        * w01 + p11.amplitude        * w11;
-    result.baseHeight       = p00.baseHeight       * w00 + p10.baseHeight       * w10 + p01.baseHeight       * w01 + p11.baseHeight       * w11;
-    result.mountainStrength = p00.mountainStrength * w00 + p10.mountainStrength * w10 + p01.mountainStrength * w01 + p11.mountainStrength * w11;
-    result.treeDensity      = p00.treeDensity      * w00 + p10.treeDensity      * w10 + p01.treeDensity      * w01 + p11.treeDensity      * w11;
-    result.treeLine         = p00.treeLine         * w00 + p10.treeLine         * w10 + p01.treeLine         * w01 + p11.treeLine         * w11;
+    result.amplitude       = p00.amplitude       * w00 + p10.amplitude       * w10 + p01.amplitude       * w01 + p11.amplitude       * w11;
+    result.baseHeight      = p00.baseHeight      * w00 + p10.baseHeight      * w10 + p01.baseHeight      * w01 + p11.baseHeight      * w11;
+    result.mountainStrength= p00.mountainStrength* w00 + p10.mountainStrength* w10 + p01.mountainStrength* w01 + p11.mountainStrength* w11;
+    result.treeDensity     = p00.treeDensity     * w00 + p10.treeDensity     * w10 + p01.treeDensity     * w01 + p11.treeDensity     * w11;
+    result.treeLine        = p00.treeLine        * w00 + p10.treeLine        * w10 + p01.treeLine        * w01 + p11.treeLine        * w11;
 
     return result;
 }

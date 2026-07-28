@@ -19,6 +19,216 @@
 #include "terrain.hpp"
 #include "helpers.hpp"
 
+
+ /*
+ * Terrain Generation Notes - 1km = 1000m = 1000 blocks
+ *
+ |                                                     | Spacing/   | Height/   |
+ | Feature                                             | Frecuency  |  Depth    |
+ | --------------------------------------------------- | ---------- | --------- |
+ | Small landmarks (structures, small/medium caves)    |  0.2-0.5 m |   20–50 m |
+ | Villages/camps                                      |     1–3 km |    5-15 m |
+ | Large hills or big caves                            | 0.8–1.5 km | 100-250 m |
+ | Major mountains                                     |     5–8 km |  0.3-1 km |
+ | Major mountain ranges                               |   20–30 km |    1–3 km |
+ | Large lakes                                         |     1–5 km |   20-30 m |
+ | Inland seas                                         |   10–20 km |   35-55 m |
+ *
+ * Distances are approximate and can vary based on biome and terrain generation parameters.
+ *
+ * (?) means that it might be implemented, but isn't strictly necessary
+ *
+ *
+ * Steps to produce terrain:
+ *
+ * 1. Generate continents and oceans.
+ *    * Main noise layer:
+ *      - Continental noise: Very low frequency (~0.00002-0.00005)
+ *    * Controls:
+ *      - Land vs ocean
+ *      - Coastline shape
+ *      - Inland seas
+ *      - Large islands
+ *    * Noise generator:
+ *      - OpenSimplex2
+ *    * Pseudo-code:
+ *      - continent = OpenSimplex2(...)
+ *      - if continent < seaLevel:
+ *      -     Ocean
+ *      - else:
+ *      -     Land
+ *
+ * 2. Generate tectonic activity.
+ *    * Controls:
+ *      - Mountain range probability
+ *      - Volcanic regions
+ *      - Ore richness
+ *      - Future geology
+ *    * Noise generator:
+ *      - OpenSimplex2 (very low frequency)
+ *    * Pseudo-code:
+ *      - tectonics = OpenSimplex2(...)
+ *
+ * 3. Generate mountain range mask.
+ *    * Controls:
+ *      - Large mountain chains
+ *      - Major valleys
+ *    * Noise generator:
+ *      - Ridged Noise
+ *    * Pseudo-code:
+ *      - rangeMask = RidgedNoise(...)
+ *      - rangeMask *= tectonics;
+ *
+ * 4. Generate base terrain.
+ *    * Main noise layers:
+ *      - Regional
+ *      - Local
+ *      - Terrain
+ *      - Detail
+ *      - Micro
+ *    * Noise Wavelength:
+ *      - Regional:  10     -  50    km
+ *      - Local:      2     -  10    km
+ *      - Terrain:    0.2   -   2    km
+ *      - Detail:     0.02  -   0.2  km
+ *      - Micro:      0.001 -   0.02 km
+ *    * Noise generators:
+ *      - Regional -> Ridged
+ *      - Local -> Ridged FBM
+ *      - Terrain -> FBM OpenSimplex2
+ *      - Detail -> Cellular + FBM
+ *      - Micro -> Value / White
+ *    * Pseudo-code:
+ *      - mountains = rangeMask * RidgedFBM(...)
+ *      - terrain = FBM(...)
+ *      - detail = Cellular(...)
+ *      - micro = ValueNoise(...)
+ *      - height = continent + mountains + terrain + detail + micro;
+ *
+ * 5. Apply domain warping.
+ *    * Controls:
+ *      - Natural terrain flow
+ *      - Twisting valleys
+ *      - Curved ridges
+ *    * Notes:
+ *      - Warp everything except continental noise.
+ *    * Pseudo-code:
+ *      - x2 = x + warpNoise(...) * 300;
+ *      - y2 = y + warpNoise2(...) * 300;
+ *      - height = Noise(x2, y2);
+ *
+ * 6. Apply erosion (optional but highly recommended).
+ *    * Controls:
+ *      - River valleys
+ *      - Sediment
+ *      - Natural mountain shapes
+ *    * Types:
+ *      - Hydraulic erosion
+ *      - Thermal erosion
+ *
+ * 7. Generate rivers.
+ *    * Controls:
+ *      - River network
+ *      - Lakes
+ *    * Notes:
+ *      - Rivers should follow the heightmap, not random noise.
+ *      - Flow always moves downhill.
+ *
+ * 8. Generate biome parameters.
+ *
+ *    a. Elevation
+ *      * Controls:
+ *        - Mountains
+ *        - Plains
+ *        - Valleys
+ *        - Snow line
+ *      * Pseudo-code:
+ *        - elevation = normalize(height);
+ *
+ *    b. Continentality
+ *      * Controls:
+ *        - Annual temperature variation
+ *        - Overall humidity
+ *      * Notes:
+ *        - High continentality = deep inland
+ *        - Low continentality = coastline
+ *      * Pseudo-code:
+ *        - d = distanceToNearestOcean(...) - continentality = min(1, d / averageDistanceToOcean);
+ *
+ *    c. Temperature
+ *      * Controls:
+ *        - Snow
+ *        - Tundra
+ *        - Forest type
+ *        - Jungle
+ *      * Notes:
+ *        - Add contributions instead of multiplying.
+ *      * Pseudo-code:
+ *        - temperature = latitudeTemperature + climateNoise - (elevation * 0.4) - (continentality * 0.1);
+ *
+ *    d. River Influence
+ *      * Controls:
+ *        - Greener terrain
+ *        - More wildlife
+ *        - Settlement suitability
+ *      * Pseudo-code:
+ *        - d = distanceToNearestRiver(...) - riverInfluence = max(0, 1 - d / averageRiverDistance);
+ *
+ *    e. Humidity
+ *      * Controls:
+ *        - Forests
+ *        - Deserts
+ *        - Grasslands
+ *        - Jungles
+ *      * Pseudo-code:
+ *        - humidity = humidityNoise + riverInfluence - continentality - rainShadow;
+ *
+ *    f. Fertility
+ *      * Controls:
+ *        - Vegetation density
+ *      * Pseudo-code:
+ *        - fertility = humidity + riverInfluence - slope - elevation;
+ *
+ *    g. Geology
+ *      * Controls:
+ *        - Bedrock type
+ *        - Cave generation
+ *        - Rock appearance
+ *        - Ore distribution
+ *      * Notes:
+ *        - Geology should NOT depend on climate.
+ *      * Noise generator:
+ *        - Very low-frequency OpenSimplex2
+ *      * Pseudo-code:
+ *        - geologyNoise = OpenSimplex2(...)
+ *
+ *        - if geologyNoise < 0.25:
+ *        -     Granite
+ *        - else if geologyNoise < 0.50:
+ *        -     Limestone
+ *        - else if geologyNoise < 0.75:
+ *        -     Basalt
+ *        - else:
+ *        -     Sandstone
+ *
+ *        // Tectonic activity can bias probabilities:
+ *        // High tectonics -> more basalt/granite
+ *        // Low tectonics -> more limestone/sandstone
+ *
+ *    h. Slope
+ *      * Controls:
+ *        - Grass
+ *        - Forest
+ *        - Cliffs
+ *        - Bare rock
+ *      * Pseudo-code:
+ *        - slope = length(gradient(height));
+ */
+
+
+
+int Terrain::totalChunksGenerated = 0; // Initialize static member variable
+
 // Procedural generation of chunk blocks
 void Terrain::generate( const ChunkCoord& chunkPos, const int seed, _Block(*blocks)[CHUNK_SIZE][CHUNK_SIZE])
 {
@@ -27,6 +237,7 @@ void Terrain::generate( const ChunkCoord& chunkPos, const int seed, _Block(*bloc
     31% block filling
     63% tree placement
     */
+    totalChunksGenerated++; // Increment the chunk counter
 
     if (chunkPos.y < 0) return; // No chunks under negative chunkPos
 

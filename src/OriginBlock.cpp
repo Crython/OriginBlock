@@ -491,9 +491,14 @@ void Engine::render()
 
     if (debugStatistics)
     {
-        std::string vertText = "Verticies: " + std::to_string(verticesRendered);
-        text->renderText(vertText, 10.0f, 130.0f, 1.0f, glm::vec3(1.0f, 0.25f, 0.2f), false); // Red debug information
+        // Reusable debug text
+        std::string dbgText;
 
+        dbgText = "Verticies: " + std::to_string(verticesRendered);
+        text->renderText(dbgText, 10.0f, 130.0f, 1.0f, glm::vec3(1.0f, 0.25f, 0.2f), false); // Red debug information
+
+        dbgText = "Chunks: " + std::to_string(Terrain::getTotalChunksGenerated());
+        text->renderText(dbgText, 10.0f, 155.0f, 1.0f, glm::vec3(1.0f, 0.25f, 0.2f), false); // Red debug information
     }
 
     // Draw Chat

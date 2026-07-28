@@ -1,6 +1,102 @@
 #include "pch.h"
 #include "noise.hpp"
 
+/*
+ *1. Generate continents and oceans.
+ *    * Main noise layer:
+ *      - Continental noise: Very low frequency (~0.00002-0.00005)
+ *    * Controls:
+ *      - Land vs ocean
+ *      - Coastline shape
+ *      - Inland seas
+ *      - Large islands
+ *    * Noise generator:
+ *      - OpenSimplex2
+ *    * Pseudo-code:
+ *      - continent = OpenSimplex2(...)
+ *      - if continent < seaLevel:
+ *      -     Ocean
+ *      - else:
+ *      -     Land
+ *
+ * 2. Generate tectonic activity.
+ *    * Controls:
+ *      - Mountain range probability
+ *      - Volcanic regions
+ *      - Ore richness
+ *      - Future geology
+ *    * Noise generator:
+ *      - OpenSimplex2 (very low frequency)
+ *    * Pseudo-code:
+ *      - tectonics = OpenSimplex2(...)
+ *
+ * 3. Generate mountain range mask.
+ *    * Controls:
+ *      - Large mountain chains
+ *      - Major valleys
+ *    * Noise generator:
+ *      - Ridged Noise
+ *    * Pseudo-code:
+ *      - rangeMask = RidgedNoise(...)
+ *      - rangeMask *= tectonics;
+ *
+ * 4. Generate base terrain.
+ *    * Main noise layers:
+ *      - Regional
+ *      - Local
+ *      - Terrain
+ *      - Detail
+ *      - Micro
+ *    * Noise Wavelength:
+ *      - Regional:  10     -  50    km
+ *      - Local:      2     -  10    km
+ *      - Terrain:    0.2   -   2    km
+ *      - Detail:     0.02  -   0.2  km
+ *      - Micro:      0.001 -   0.02 km
+ *    * Noise generators:
+ *      - Regional -> Ridged
+ *      - Local -> Ridged FBM
+ *      - Terrain -> FBM OpenSimplex2
+ *      - Detail -> Cellular + FBM
+ *      - Micro -> Value / White
+ *    * Pseudo-code:
+ *      - mountains = rangeMask * RidgedFBM(...)
+ *      - terrain = FBM(...)
+ *      - detail = Cellular(...)
+ *      - micro = ValueNoise(...)
+ *      - height = continent + mountains + terrain + detail + micro;
+ *
+ * 5. Apply domain warping.
+ *    * Controls:
+ *      - Natural terrain flow
+ *      - Twisting valleys
+ *      - Curved ridges
+ *    * Notes:
+ *      - Warp everything except continental noise.
+ *    * Pseudo-code:
+ *      - x2 = x + warpNoise(...) * 300;
+ *      - y2 = y + warpNoise2(...) * 300;
+ *      - height = Noise(x2, y2);
+ *
+ * 6. Apply erosion (optional but highly recommended).
+ *    * Controls:
+ *      - River valleys
+ *      - Sediment
+ *      - Natural mountain shapes
+ *    * Types:
+ *      - Hydraulic erosion
+ *      - Thermal erosion
+ *
+ * 7. Generate rivers.
+ *    * Controls:
+ *      - River network
+ *      - Lakes
+ *    * Notes:
+ *      - Rivers should follow the heightmap, not random noise.
+ *      - Flow always moves downhill.
+ *
+ */
+
 // Domain warping parameters
 constexpr float WARP_FREQUENCY_LOW = 0.005f;     // Large-scale domain warping
 constexpr float WARP_FREQUENCY_HIGH = 0.02f;     // Detail domain warping

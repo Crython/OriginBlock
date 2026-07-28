@@ -18,7 +18,7 @@ constexpr size_t MAX_CHUNKS_LOADED_PER_FRAME = 256;
 constexpr size_t MAX_CHUNKS_POPPED_PER_FRAME = 3072;
 
 
-constexpr int RENDER_RADIUS = 40;        // -X/X, -Z/Z
+constexpr int RENDER_RADIUS = 26;        // -X/X, -Z/Z
 constexpr int MAX_NEG_RENDER_RADIUS_Y = 15; // -Y (chunk should be <2 pixels total for 32)
 constexpr int POS_RENDER_RADIUS_Y = 10;  // +Y
 
