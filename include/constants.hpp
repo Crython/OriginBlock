@@ -14,7 +14,7 @@ constexpr float PI = 3.14159265358979323846f;
 constexpr int CHUNK_SIZE = 16; // Size of a chunk in blocks (16x16x16) DO NOT CHANGE!!!!
 constexpr int CHUNK_SIZE_SQUARED = CHUNK_SIZE * CHUNK_SIZE;
 constexpr size_t MAX_CHUNK_UPDATES_PER_FRAME = 512;
-constexpr size_t MAX_CHUNKS_LOADED_PER_FRAME = 256;
+constexpr size_t MAX_CHUNKS_LOADED_PER_FRAME = 512;
 constexpr size_t MAX_CHUNKS_POPPED_PER_FRAME = 3072;
 
 

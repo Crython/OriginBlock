@@ -634,26 +634,7 @@ void World::buildPlanTask(std::shared_ptr<World::LoadingPlan> plan, glm::vec3 vi
  */
 void World::updateLoadedChunks(const glm::dvec3& playerPos, glm::vec3 viewDir, const uint32_t seed)
 {
-    // PHASE 1: Background planning if moved significantly
-    double dx = playerPos.x - lastUpdatePos.x;
-    double dy = playerPos.y - lastUpdatePos.y;
-    double dz = playerPos.z - lastUpdatePos.z;
-    bool moved = (dx*dx + dy*dy + dz*dz >= REPLAN_DISTANCE_SQ); // Only replan every 4+ blocks
-
-    if ((moved || !activePlan) && !planInProgressBar) {
-        planInProgressBar = true;
-        lastUpdatePos = playerPos;
-        auto plan = std::make_shared<LoadingPlan>();
-        plan->playerPos = playerPos;
-        nextPlan = plan;
-
-        std::thread([this, plan, viewDir, seed]() {
-            buildPlanTask(plan, viewDir, seed);
-            std::lock_guard<std::mutex> lock(planMutex);
-            planInProgressBar = false;
-        }).detach();
-    }
-
+    // Do phase 2 first to avoid losing built plans
     // PHASE 2: Poll for plan completion and activate
     {
         std::lock_guard<std::mutex> lock(planMutex);
@@ -674,6 +655,26 @@ void World::updateLoadedChunks(const glm::dvec3& playerPos, glm::vec3 viewDir, c
             nextUnloadIndex = 0;
             isUnloading = true;
         }
+    }
+
+    // PHASE 1: Background planning if moved significantly
+    double dx = playerPos.x - lastUpdatePos.x;
+    double dy = playerPos.y - lastUpdatePos.y;
+    double dz = playerPos.z - lastUpdatePos.z;
+    bool moved = (dx*dx + dy*dy + dz*dz >= REPLAN_DISTANCE_SQ); // Only replan every 4+ blocks
+
+    if ((moved || !activePlan) && !planInProgressBar) {
+        planInProgressBar = true;
+        lastUpdatePos = playerPos;
+        auto plan = std::make_shared<LoadingPlan>();
+        plan->playerPos = playerPos;
+        nextPlan = plan;
+
+        std::thread([this, plan, viewDir, seed]() {
+            buildPlanTask(plan, viewDir, seed);
+            std::lock_guard<std::mutex> lock(planMutex);
+            planInProgressBar = false;
+        }).detach();
     }
 
     if (!activePlan) return; // No plan yet

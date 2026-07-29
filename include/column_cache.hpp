@@ -9,6 +9,7 @@ public:
 
 
 	static void clearCache();
+	// Get column from cache or generate it with the same generator
 	static std::shared_ptr<HeightField::ColumnData> getOrGenerateColumn(int x, int z, int seed);
 
 	static uint64_t packCoords(int x, int z) {

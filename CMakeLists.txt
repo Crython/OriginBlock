@@ -12,6 +12,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Configure compiler and linker flags for MSVC
 if (MSVC)
+    get_filename_component(MSVC_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
+
+    set(CMAKE_VS_DEBUGGER_ENVIRONMENT
+        "PATH=${MSVC_BIN_DIR};%PATH%"
+    )
+
     # -------------------------------------------------------------------------
     # 1. Clean up default Debug flags for ASan compatibility
     # -------------------------------------------------------------------------

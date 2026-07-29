@@ -2,6 +2,10 @@
 
 #ifdef DEBUG_EXPORT_ENABLED
 
+#include "biome.hpp"
+#include "column_cache.hpp"
+
+
 void DebugExport::writeChunkHeightmapPNG(int startChunkX, int startChunkZ, int chunkCountX, int chunkCountZ, int chunkSize, int seed, const char* filename)
 {
     if (chunkCountX <= 0 || chunkCountZ <= 0 || !filename) return;

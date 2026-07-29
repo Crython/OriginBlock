@@ -24,7 +24,7 @@ public:
 
 
     // Use pointer to 3D array of _Block with CHUNK_SIZE in each dimension
-    static void generate(const ChunkCoord& chunkPos, const int seed, _Block (*blocks)[CHUNK_SIZE][CHUNK_SIZE]);
+	static void generate(const ChunkCoord& chunkPos, const int seed, _Block(*blocks)[CHUNK_SIZE][CHUNK_SIZE]);
 
     // Generate a pseudo random unsigned integer
     static uint32_t setRandSeed(void* instancePtr);

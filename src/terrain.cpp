@@ -230,7 +230,7 @@
 int Terrain::totalChunksGenerated = 0; // Initialize static member variable
 
 // Procedural generation of chunk blocks
-void Terrain::generate( const ChunkCoord& chunkPos, const int seed, _Block(*blocks)[CHUNK_SIZE][CHUNK_SIZE])
+void Terrain::generate(const ChunkCoord& chunkPos, const int seed, _Block(*blocks)[CHUNK_SIZE][CHUNK_SIZE])
 {
 	/* Time profiling of terrain generation:
     6% cache
@@ -242,7 +242,7 @@ void Terrain::generate( const ChunkCoord& chunkPos, const int seed, _Block(*bloc
     if (chunkPos.y < 0) return; // No chunks under negative chunkPos
 
     // Retrieve column data (cached shared_ptr)
-	auto colData = ColumnCache::getOrGenerateColumn(chunkPos.x, chunkPos.z, seed); // 3.5 - 6 microseconds
+	auto colData = ColumnCache::getOrGenerateColumn(chunkPos.x, chunkPos.z, seed);
 
     // The maximum height in this chunk column in chunk-space
     int maxBlockYInChunkPOS = Noise::floorDiv(colData->maxHeight, CHUNK_SIZE);
@@ -261,7 +261,6 @@ void Terrain::generate( const ChunkCoord& chunkPos, const int seed, _Block(*bloc
         for (int z = 0; z < CHUNK_SIZE; z++) {
 
             int height = colData->heightMap[x][z];
-            Biome::BiomeType biome = colData->biome;
 
             int worldX = chunkPos.x * CHUNK_SIZE + x;
             int worldZ = chunkPos.z * CHUNK_SIZE + z; // Still needed for hash calculation below
@@ -272,10 +271,6 @@ void Terrain::generate( const ChunkCoord& chunkPos, const int seed, _Block(*bloc
                 
                 if (worldY < height - 2)
                     b.setValues(BlockType::STONE, 0, 0);      // stone
-                else if (worldY < height - 1)
-                    b.setValues(((int)biome <= 3 ? BlockType::SAND : (biome == Biome::BiomeType::Mountains ? BlockType::STONE : BlockType::DIRT)), 0, 0);      // dirt
-                else if (worldY == height - 1)
-                    b.setValues(((int)biome <= 3 ? BlockType::SAND : (biome == Biome::BiomeType::Mountains ? BlockType::STONE : BlockType::GRASS)), 0, 0);      // grass or sand
                 else
                     b.setValues(BlockType::AIR, 0, 0);      // air
             }

@@ -3,7 +3,6 @@
 
 #include "stb/stb_image_write.h" // For writing PNG files
 
-
 class DebugExport {
 public:
 

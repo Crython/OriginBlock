@@ -67,7 +67,8 @@ public:
     bool planInProgressBar = false;
 
     ChunkMap chunks;
-    
+    HeightField heightFieldObj;
+
     enum class ChunkState : uint8_t { EMPTY, HIDDEN_SOLID };
     // Map of chunks that are unloaded and their state
     std::unordered_map<ChunkCoord, ChunkState, ChunkCoordHash> unloadedChunks;
@@ -119,7 +120,7 @@ public:
 
 
     // Chunk management
-    void updateLoadedChunks(const glm::dvec3& playerPos, glm::vec3 viewDir, const uint32_t seed); 
+    void updateLoadedChunks(const glm::dvec3& playerPos, glm::vec3 viewDir, const uint32_t seed);
     void rebuildDirtyChunks(const glm::vec3& lightDir, const glm::dvec3& playerPos);
     void loadChunk(const ChunkCoord& coord, int seed, bool immediate = false);
     ChunkMap::iterator unloadChunk(ChunkMap::iterator it);
