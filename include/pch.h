@@ -55,11 +55,12 @@
 
 
 
-// SFML headers
-#include "SFML/System.hpp"
-#include <SFML/Audio.hpp>     // Sounds, music
-#include <SFML/Network.hpp>   // Optional
-#include <SFML/Graphics/Image.hpp> // For loading textures
+// SFML headers — commented out until audio/image loading is actively used
+// To re-enable: uncomment these lines AND re-enable SFML in CMakeLists.txt
+// #include "SFML/System.hpp"
+// #include <SFML/Audio.hpp>     // Sounds, music
+// #include <SFML/Network.hpp>   // Optional
+// #include <SFML/Graphics/Image.hpp> // For loading textures
 // No window. GLFW is used for windowing instead
 
 // GLM headers

@@ -58,11 +58,39 @@ endif()
 
 
 
-# SFML location (adjust to your path)
-set(SFML_DIR "C:/SFML-2.6.0/lib/cmake/SFML")
+# -----------------------------------------------------------------------------
+# Vendored Dependencies (FetchContent with offline/zip fallback)
+# -----------------------------------------------------------------------------
+include(FetchContent)
 
-# Find SFML
-find_package(SFML 2.6 COMPONENTS system window graphics REQUIRED)
+# GLFW (windowing & input)
+# Priority: local deps/glfw/ (offline-friendly) → GitHub download (first run)
+set(_glfw_local "${CMAKE_SOURCE_DIR}/deps/glfw")
+if(EXISTS "${_glfw_local}/CMakeLists.txt")
+    message(STATUS "GLFW: using vendored source at deps/glfw")
+    FetchContent_Declare(glfw SOURCE_DIR "${_glfw_local}")
+else()
+    message(STATUS "GLFW: fetching from GitHub (pin: tag 3.4)")
+    FetchContent_Declare(
+        glfw
+        GIT_REPOSITORY https://github.com/glfw/glfw.git
+        GIT_TAG        3.4
+        GIT_SHALLOW    TRUE
+    )
+endif()
+set(GLFW_BUILD_DOCS     OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(GLFW_INSTALL        OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(glfw)
+
+# SFML — commented out until audio/image loading is actively used
+# When re-enabling, also uncomment the SFML includes in include/pch.h
+# and add sfml-system (+ sfml-audio etc.) back to target_link_libraries.
+#
+# set(SFML_DIR "C:/SFML-2.6.0/lib/cmake/SFML")
+# find_package(SFML 2.6 COMPONENTS system window graphics audio REQUIRED)
+
 # Find OpenGL
 find_package(OpenGL REQUIRED)
 find_package(Threads REQUIRED)
@@ -79,15 +107,11 @@ target_include_directories(OriginBlock PRIVATE ${PROJECT_SOURCE_DIR}/include)
 target_precompile_headers(OriginBlock PRIVATE ${PROJECT_SOURCE_DIR}/include/pch.h)
 
 
-add_library(glfw STATIC IMPORTED)
-set_target_properties(glfw PROPERTIES
-    IMPORTED_LOCATION "C:/GLFW/build/src/Release/glfw3.lib"
-    INTERFACE_INCLUDE_DIRECTORIES "C:/GLFW/include"
-)
-
 # Link libraries
+# Note: 'glfw' target is provided by FetchContent above — no IMPORTED lib needed.
+# sfml-system commented out until SFML is re-enabled.
 target_link_libraries(OriginBlock
-    sfml-system
+    # sfml-system
     OpenGL::GL
     glfw
     Threads::Threads

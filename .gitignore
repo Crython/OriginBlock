@@ -26,3 +26,10 @@ Makefile
 # OS
 .DS_Store
 Thumbs.db
+
+# Vendored dependency build artefacts (sources in deps/ ARE committed)
+deps/**/CMakeFiles/
+deps/**/build/
+deps/**/*.obj
+deps/**/*.lib
+deps/**/*.a
