@@ -4,7 +4,7 @@
 
 #include "types.hpp"
 #include "constants.hpp"
-#include "heightField.hpp"
+#include "heightfield.hpp"
 #include "textureManager.hpp"
 #include "helpers.hpp"
 

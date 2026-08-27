@@ -9,6 +9,7 @@
 void DebugExport::writeChunkHeightmapPNG(int startChunkX, int startChunkZ, int chunkCountX, int chunkCountZ, int chunkSize, int seed, const char* filename)
 {
     if (chunkCountX <= 0 || chunkCountZ <= 0 || !filename) return;
+    std::cerr << "Starting heightmap generation" << std::endl;
 
     const int width = chunkCountX * chunkSize;
     const int height = chunkCountZ * chunkSize;
@@ -18,6 +19,7 @@ void DebugExport::writeChunkHeightmapPNG(int startChunkX, int startChunkZ, int c
         image.resize(static_cast<size_t>(width) * height * 3);
     }
     catch (...) {
+        std::cerr << "Failed to allocate memory for heightmap image of size " << width << "x" << height << std::endl;  
         return; // Allocation failed
     }
 
@@ -30,6 +32,7 @@ void DebugExport::writeChunkHeightmapPNG(int startChunkX, int startChunkZ, int c
         heights.resize(static_cast<size_t>(width) * height);
     }
     catch (...) {
+        std::cerr << "Failed to allocate memory for heightmap data of size " << width << "x" << height << std::endl;
         return;
     }
 
@@ -111,6 +114,8 @@ void DebugExport::writeChunkHeightmapPNG(int startChunkX, int startChunkZ, int c
     }
 
     stbi_write_png(filename, width, height, 3, image.data(), width * 3);
+
+    std::cout << "Heightmap exported to " << filename << " (minH: " << minH << ", maxH: " << maxH << ")" << std::endl;
 }
 
 void DebugExport::writeChunkBiomemapPNG(int startChunkX, int startChunkZ, int chunkCountX, int chunkCountZ, int chunkSize, int seed, const char* filename)

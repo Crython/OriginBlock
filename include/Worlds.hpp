@@ -9,7 +9,7 @@
 #include <glm/glm/gtc/matrix_transform.hpp>
 #include "constants.hpp"
 
-#include "glfw/glfw3.h"
+#include "GLFW/glfw3.h"
 #include <cassert>
 
 class ThreadedChunkSystem; // Forward declaration

@@ -1,5 +1,5 @@
-#version 450 core
-layout (location = 0) in vec2 aPos;
+#version 410 core
+vec2 aPos;
 
 uniform mat4 uProjection;
 

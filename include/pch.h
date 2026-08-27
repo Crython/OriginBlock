@@ -63,6 +63,11 @@
 // #include <SFML/Graphics/Image.hpp> // For loading textures
 // No window. GLFW is used for windowing instead
 
+#ifdef __APPLE__
+    // Disable Intel SIMD instructions for Mac to prevent architecture crashes
+    #define GLM_FORCE_PURE
+#endif
+
 // GLM headers
 #define GLM_FORCE_INLINE      // Forces MSVC to inline math functions, avoiding function call overhead.
 #define GLM_FORCE_AVX2        // Forces GLM to use 256-bit SIMD intrinsics for vec4 structures.

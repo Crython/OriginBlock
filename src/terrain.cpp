@@ -271,6 +271,10 @@ void Terrain::generate(const ChunkCoord& chunkPos, const int seed, _Block(*block
                 
                 if (worldY < height - 2)
                     b.setValues(BlockType::STONE, 0, 0);      // stone
+                else if (worldY <= height - 2)
+                    b.setValues(BlockType::DIRT, 0, 0);      // dirt
+                else if (worldY == height - 1)
+                    b.setValues(BlockType::GRASS, 0, 0);      // grass or sand
                 else
                     b.setValues(BlockType::AIR, 0, 0);      // air
             }

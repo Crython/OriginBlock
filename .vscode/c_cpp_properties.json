@@ -1,0 +1,27 @@
+{
+    "configurations": [
+        {
+            "name": "Mac",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/include",
+                "/Users/tomi.lohmus/homebrew/include"
+            ],
+            "forcedInclude": [
+                "${workspaceFolder}/include/pch.h",
+                "${workspaceFolder}/include/vegetation.hpp"
+            ],
+            "defines": [],
+            "compilerPath": "/usr/bin/clang",
+            "configurationProvider": "ms-vscode.cmake-tools",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "macos-clang-arm64",
+            "compilerArgs": [
+                "-I./include"
+            ],
+            "compileCommands": "${workspaceFolder}/build/compile_commands.json"
+        }
+    ],
+    "version": 4
+}

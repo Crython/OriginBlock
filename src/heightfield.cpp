@@ -1,5 +1,6 @@
 #include "heightfield.hpp"
 #include "helpers.hpp"
+#include <random>
 /*
 * Terrain Generation Notes - 1km = 1000m = 1000 blocks
 *
@@ -70,8 +71,14 @@ float HeightField::generateHeightCell(TerrainNoise& n, float worldX, float world
         + detail * 0.08f
         + micro * 0.02f;
 
-    // Normalize from the theoretical combined range to [0, 1]
-    height = Remap(height, -1.95f, 1.95f, 0.0f, 1.0f);
+    // Normalize from the theoretical combined range to [0, 1].
+    // NOTE: this range is not symmetric. "mountains" only ever adds (rangeMask
+    // and the ridged regional/local layers are >= 0), so the true minimum is
+    // continent(-1) + mountains(0) + terrain(-0.25) + detail(-0.08) + micro(-0.02) = -1.35,
+    // while the max is continent(1) + mountains(0.6) + terrain(0.25) + detail(0.08) + micro(0.02) = 1.95.
+    // The old symmetric -1.95..1.95 range compressed everything into the top
+    // ~80% of [0,1] (values below ~0.154 were unreachable), reducing contrast.
+    height = Remap(height, -1.35f, 1.95f, 0.0f, 1.0f);
     return Clamp01(height);
 }
 
@@ -104,10 +111,17 @@ void HeightField::ApplyThermalErosion(HeightGrid& g, int iterations, float talus
 
 // --- Step 6b: simple hydraulic erosion (droplet-based) ---
 void HeightField::ApplyHydraulicErosion(HeightGrid& g, int dropletCount, unsigned int seed) {
-    srand(seed);
+    // Local RNG instead of global srand()/rand(): reentrant and thread-safe
+    // (global rand() state was a data race if chunks generate concurrently),
+    // and depends only on the seed passed in - see generateHeightColumn,
+    // which now mixes chunk coordinates into that seed instead of reusing
+    // the same raw world seed for every chunk.
+    std::mt19937 rng(seed);
+    std::uniform_int_distribution<int> pickX(0, g.width - 1);
+    std::uniform_int_distribution<int> pickY(0, g.height - 1);
     for (int d = 0; d < dropletCount; ++d) {
-        float x = static_cast<float>(rand() % g.width);
-        float y = static_cast<float>(rand() % g.height);
+        float x = static_cast<float>(pickX(rng));
+        float y = static_cast<float>(pickY(rng));
         float sediment = 0.0f, speed = 1.0f, water = 1.0f;
 
         for (int step = 0; step < 64; ++step) {
@@ -139,7 +153,13 @@ void HeightField::ApplyHydraulicErosion(HeightGrid& g, int dropletCount, unsigne
                 sediment -= deposit;
             }
             else {
-                float erode = std::min((capacity - sediment) * 0.3f, -deltaH >= 0 ? 0.0f : 0.01f);
+                // Erosion should happen while the droplet moves downhill
+                // (deltaH < 0). This condition was inverted, which disabled
+                // erosion during normal flow and only allowed it in the rare
+                // case the droplet stepped uphill - so hydraulic erosion was
+                // barely doing anything, leaving the small-scale source noise
+                // unsmoothed.
+                float erode = std::min((capacity - sediment) * 0.3f, deltaH <= 0.0f ? 0.01f : 0.0f);
                 g.at(ix, iy) -= erode;
                 sediment += erode;
             }
@@ -180,36 +200,85 @@ HeightField::HeightGrid HeightField::ComputeFlowAccumulation(const HeightGrid& g
     return flow;
 }
 
+namespace {
+    // Mixes the world seed with chunk coordinates into a well-distributed
+    // per-chunk seed. Previously every chunk passed the same raw world seed
+    // into ApplyHydraulicErosion, so every chunk got the exact same droplet
+    // pattern "stamped" down (visible as a repeating pattern), on top of the
+    // global-RNG data race mentioned above.
+    unsigned int HashChunkSeed(unsigned int seed, int chunkX, int chunkZ) {
+        unsigned int h = seed;
+        h ^= static_cast<unsigned int>(chunkX) * 0x9E3779B1u;
+        h ^= static_cast<unsigned int>(chunkZ) * 0x85EBCA77u;
+        h ^= (h >> 16);
+        h *= 0x7FEB352Du;
+        h ^= (h >> 15);
+        h *= 0x846CA68Bu;
+        h ^= (h >> 16);
+        return h;
+    }
+}
+
 HeightField::ColumnData HeightField::generateHeightColumn(int chunkX, int chunkZ, unsigned int seed) {
 
     // Initialize noise
     TerrainNoise tn(seed);
 
-    // Initialize the HeightGrid
+    // Both erosion passes only ever touch the *interior* of the grid (their
+    // loops skip the outermost ring - see `x = 1; x < g.width - 1`). With a
+    // grid sized exactly CHUNK_SIZE x CHUNK_SIZE, that untouched ring IS the
+    // chunk edge, so it never gets eroded, and each chunk erodes completely
+    // independently of its neighbor. The mismatch at that shared edge is
+    // what shows up as chunk-boundary seams.
+    //
+    // Fix: sample a padded region extending `margin` cells past every edge,
+    // erode the padded grid, then keep only the interior. Thermal erosion
+    // moves height at most 1 cell per iteration, so a margin strictly
+    // greater than the iteration count guarantees the interior we keep is
+    // identical to what an infinite (unchunked) grid would have produced.
+    // (Hydraulic erosion's random droplets can in theory travel further, so
+    // this padding greatly reduces but can't perfectly eliminate hydraulic
+    // seams - bump `margin` up further if any are still visible.)
+    const int margin = 6; // > the 5 thermal erosion iterations below
+    const int gridSize = CHUNK_SIZE + margin * 2;
+
     HeightGrid hg;
-    hg.init(CHUNK_SIZE, CHUNK_SIZE);
+    hg.init(gridSize, gridSize);
 
-    // Generate the height of the column
-    for (int z = 0; z < CHUNK_SIZE; z++) {
-        float wz = chunkZ * CHUNK_SIZE + z;
-        for (int x = 0; x < CHUNK_SIZE; x++) {
-            float wx = chunkX * CHUNK_SIZE + x;
+    for (int z = 0; z < gridSize; z++) {
+        float wz = static_cast<float>(chunkZ * CHUNK_SIZE + (z - margin));
+        for (int x = 0; x < gridSize; x++) {
+            float wx = static_cast<float>(chunkX * CHUNK_SIZE + (x - margin));
 
-            // Generate normalized height [0, 1] and scale to block height
-            hg.at(x, z) = generateHeightCell(tn, wx, wz) * 128.0f + 32.0f;
+            // Keep this normalized to [0, 1]. ApplyThermalErosion's and
+            // ApplyHydraulicErosion's parameters (talusAngle 0.02f, the
+            // 0.01f erosion cap, etc.) are tuned for that range - scaling to
+            // block height (~32-160) before eroding made every ordinary
+            // slope look enormous next to those thresholds, so thermal
+            // erosion aggressively flattened real terrain features every
+            // iteration and left only the small-scale detail/micro noise
+            // visible. Scaling now happens after erosion, in the crop loop
+            // below, instead of before.
+            hg.at(x, z) = generateHeightCell(tn, wx, wz);
         }
     }
 
     ApplyThermalErosion(hg, 5, 0.02f, 0.5f);
-    ApplyHydraulicErosion(hg, 512, seed);
-    ComputeFlowAccumulation(hg);
+    ApplyHydraulicErosion(hg, 512, HashChunkSeed(seed, chunkX, chunkZ));
+    ComputeFlowAccumulation(hg); // NOTE: result is currently discarded - flow
+                                  // accumulation is computed but never used to
+                                  // carve rivers/valleys into `hg`. Unrelated
+                                  // to the flatness/seam bugs above, but looks
+                                  // like an unfinished feature worth wiring in
+                                  // separately if rivers are wanted.
 
-    // Transfer the data to another struct
+    // Crop away the margin and transfer to the fixed-size column, scaling
+    // normalized height -> block height here (after erosion, not before).
     ColumnData cd;
     cd.maxHeight = 0; // Initialize maxHeight
     for (int z = 0; z < CHUNK_SIZE; z++) {
         for (int x = 0; x < CHUNK_SIZE; x++) {
-            float h = hg.at(x, z);
+            float h = hg.at(x + margin, z + margin) * 128.0f + 32.0f;
             cd.at(x, z) = h;
             cd.maxHeight = (cd.maxHeight < h) ? h : cd.maxHeight;
         }

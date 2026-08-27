@@ -109,7 +109,7 @@ static constexpr float OS2_F2 = 0.5f * (1.7320508075688772f - 1.0f);   // (sqrt(
 static constexpr float OS2_G2 = (3.0f - 1.7320508075688772f) / 6.0f;   // (3-sqrt(3))/6
 
 // Permutation table constants for OpenSimplex2
-static const int8_t perm[] = {
+static const uint8_t perm[] = {
     151,160,137, 91, 90, 15,131, 13,201, 95, 96, 53,194,233,  7,225,
     140, 36,103, 30, 69,142,  8, 99, 37,240, 21, 10, 23,190,  6,148,
     247,120,234, 75,  0, 26,197, 62, 94,252,219,203,117, 35, 11, 32,

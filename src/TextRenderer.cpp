@@ -129,6 +129,8 @@ void TextRenderer::renderText(std::string text, float x, float y, float scale, g
     glActiveTexture(GL_TEXTURE0);
     glBindVertexArray(vao);
     glDisable(GL_CULL_FACE);
+    // Allocate exactly enough space for 6 vertices of 4 floats each (x, y, u, v)
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 6 * 4, NULL, GL_DYNAMIC_DRAW);
 
     float currentX = x;
     // We treat 'y' as the baseline for the text

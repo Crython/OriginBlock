@@ -1,4 +1,4 @@
-#version 450 core
+#version 410 core
 
 in vec3 vFaceNormal;
 in vec2 vUV;
@@ -6,10 +6,10 @@ in float vAO;
 in float vDist;
 flat in int vTexLayer;
 
-layout (binding = 0) uniform sampler2DArray uBlockTextures;
+uniform sampler2DArray uBlockTextures;
 
 // World lighting uniform block
-layout (std140, binding = 1) uniform WorldLighting {
+layout (std140) uniform WorldLighting {
     vec3  sunDir;           // offset 0
     float sunIntensity;     // offset 16 (next 16-byte boundary)
 
@@ -48,4 +48,5 @@ void main()
     vec3 finalColor = mix(shadedColor, lighting.fogColor, fogFactor);
 
     FragColor = vec4(finalColor, texColor.a);
+    //FragColor = texColor; // For debugging
 }

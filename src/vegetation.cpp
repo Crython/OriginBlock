@@ -1,5 +1,6 @@
+#include "helpers.hpp"
 #include "vegetation.hpp"
-#include "Helpers.hpp"
+
 // Terrain foliage parameters
 float TREE_DENSITY_MULTIPLIER = 1.0f;   // Global tree density multiplier
 

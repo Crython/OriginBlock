@@ -1,4 +1,4 @@
-#version 450 core
+#version 410 core
 
 layout (location = 0) in uint aPacked1;
 layout (location = 1) in uint aPacked2;

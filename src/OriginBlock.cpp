@@ -49,10 +49,12 @@ Engine::Engine() :
     textShader("res/text_vertex.glsl", "res/text_fragment.glsl"),
     colorShader("res/color_vertex.glsl", "res/color_fragment.glsl")
 {
+    std::cout << "[LOG] Loading shaders and textures..." << std::endl;
+
     text = new TextRenderer(textShader);
     text->setScreenSize(WINDOW_WIDTH, WINDOW_HEIGHT);
 
-	const std::string fontPaths[2] = {"C:/Windows/Fonts/consola.ttf", "C:/Windows/Fonts/arial.ttf"};
+	const std::string fontPaths[2] = {"assets/fonts/consola.ttf", "assets/fonts/arial.ttf"};
 	bool fontLoaded = false;
 
 	// Attempt to load fonts in order of preference
@@ -80,17 +82,27 @@ Engine::Engine() :
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
 
+    // Generate and allocate the buffer
     glGenBuffers(1, &lightingUBO);
     glBindBuffer(GL_UNIFORM_BUFFER, lightingUBO);
-    glBufferData(GL_UNIFORM_BUFFER, sizeof(WorldLightingData), nullptr, GL_DYNAMIC_DRAW); // Allocate storage
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(WorldLightingData), nullptr, GL_DYNAMIC_DRAW); 
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
-    // Bind to the same binding point as in the shader
-    glBindBufferBase(GL_UNIFORM_BUFFER, 1, lightingUBO); // binding = 1
+    // Bind the buffer to binding point 0
+    glBindBufferBase(GL_UNIFORM_BUFFER, 0, lightingUBO); 
+
+    // Link the shader (Crucial for Mac/OpenGL 4.1)
+    GLuint blockIndex = glGetUniformBlockIndex(voxelShader.program, "WorldLighting");
+    if (blockIndex != GL_INVALID_INDEX) {
+        glUniformBlockBinding(voxelShader.program, blockIndex, 0);
+    } else {
+        std::cout << "WARNING: Could not find 'WorldLighting' in shader!" << std::endl;
+    }
+
 
     playerCamera = {
 		glm::mat4(1.0f), // View Matrix
-		glm::mat4(1.0f), // Projection Matrix
+		glm::mat4(1.0f), // Projec†tion Matrix
 		glm::dvec3(0.0), // Position
 		glm::vec3(0.0f), // Rotation
 		0.05f,           // Near Clip
@@ -447,8 +459,14 @@ void Engine::render()
     glBindBuffer(GL_UNIFORM_BUFFER, lightingUBO);
     WorldLightingData& light = overworld.lightData;
     glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(WorldLightingData), &light);
+
+    // Connect this buffer to binding point 0
+    glBindBufferBase(GL_UNIFORM_BUFFER, 0, lightingUBO);
+
+    // Unbind
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
-    
+
+
     // Draw the overworld
     // Pass rotationOnlyVP for frustum extraction and shader uniforms
     overworld.draw(voxelShader, lightDir, rotationOnlyVP, playerCamera.position, verticesRendered);
@@ -678,18 +696,20 @@ void focus_callback(GLFWwindow* window, int focused) {
 
 int main()
 {
+    std::cout << "[LOG] Starting game..." << std::endl;
+
     // Init GLFW
     if (!glfwInit()) return -1;
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_DOUBLEBUFFER, GLFW_TRUE);
 
     const char* ProjectName = "OriginBlock";
 	const std::string Version = "v0.1b";
 
-
+    std::cout << "[LOG] Attempting to create window..." << std::endl;
     GLFWwindow* window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, ProjectName, nullptr, nullptr);
     if (!window) return -1;
 
@@ -699,6 +719,7 @@ int main()
     glfwSetWindowFocusCallback(window, focus_callback);
 	glfwSetCursorPos(window, WINDOW_WIDTH / 2.0, WINDOW_HEIGHT / 2.0); // Center mouse initially
 
+    std::cout << "[LOG] Window created. Loading OpenGL pointers..." << std::endl;
     // Load OpenGL
     if (!gladLoadGL()) return -1;
 
@@ -727,11 +748,11 @@ int main()
 		engine.playerCamera.position.y += 1.0f; // Move player up until they are above the terrain
 	}
 
-    /*
+    DebugExport debugExport;
     std::string debugFilenameStr = "heightmaps/heightmap" + std::to_string(engine.overworld.worldSeed) + ".png";
     const char* debugFilename = debugFilenameStr.c_str();
-    //engine.terrain.writeChunkHeightmapPNG(-500, -500, 1000, 1000, 16, engine.overworld.worldSeed, debugFilename);
-
+    debugExport.writeChunkHeightmapPNG(-80, -80, 160, 160, 16, engine.overworld.worldSeed, debugFilename);
+/*
     debugFilenameStr = "biomemaps/biomemap" + std::to_string(engine.overworld.worldSeed) + ".png";
     debugFilename = debugFilenameStr.c_str();
     //engine.terrain.writeChunkBiomemapPNG(-500, -500, 1000, 1000, 16, engine.overworld.worldSeed, debugFilename);
@@ -746,7 +767,7 @@ int main()
     int frameCount = 0;
 
     // ----- Main loop -----
-	std::cout << "Starting main loop...\n";
+	std::cout << "[LOG] Entering main game loop!" << std::endl;
     while (!glfwWindowShouldClose(window))
     {
         double currentTime = glfwGetTime();

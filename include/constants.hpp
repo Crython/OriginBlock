@@ -3,8 +3,8 @@
 #define CONSTANTS_HPP
 
 // Window constants
-constexpr size_t WINDOW_WIDTH = 1920; // 1280
-constexpr size_t WINDOW_HEIGHT = 1080; // 720
+constexpr size_t WINDOW_WIDTH = 2560; // 1280
+constexpr size_t WINDOW_HEIGHT = 1440; // 720
 
 // Math constants
 constexpr float PI = 3.14159265358979323846f;
@@ -18,7 +18,7 @@ constexpr size_t MAX_CHUNKS_LOADED_PER_FRAME = 768;
 constexpr size_t MAX_CHUNKS_POPPED_PER_FRAME = 3072;
 
 
-constexpr int RENDER_RADIUS = 40;        // -X/X, -Z/Z
+constexpr int RENDER_RADIUS = 20;        // -X/X, -Z/Z
 constexpr int MAX_NEG_RENDER_RADIUS_Y = 12; // -Y (chunk should be <2 pixels total for 32)
 constexpr int POS_RENDER_RADIUS_Y = 12;  // +Y
 
