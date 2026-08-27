@@ -37,12 +37,16 @@ float HeightField::generateHeightCell(TerrainNoise& n, float worldX, float world
 
     // --- Step 2: tectonic activity ---
     float tectonics = n.tectonicNoise.GetNoise(worldX, worldY);   // [-1, 1]
-    // Keep a floor so flat plains still get some subtle variation
-    float tectonicFactor = Remap(tectonics, -1.0f, 1.0f, 0.15f, 1.0f);
+    // INCREASED FLOOR from 0.15f to 0.30f to make plains more hilly/bumpy
+    float tectonicFactor = Remap(tectonics, -1.0f, 1.0f, 0.30f, 1.0f);
 
     // --- Step 3: mountain range mask ---
     float rangeMask = n.rangeMaskNoise.GetNoise(worldX, worldY);  // ridged -> roughly [0,1]
     rangeMask = Clamp01(rangeMask);
+    
+    // Optional: You can square the mask to make mountains rise more sharply from the plains
+    // rangeMask = rangeMask * rangeMask; 
+    
     rangeMask *= tectonicFactor;
 
     // --- Step 5: domain warp (applied to everything except continent) ---
@@ -64,24 +68,20 @@ float HeightField::generateHeightCell(TerrainNoise& n, float worldX, float world
 
     float micro = n.microNoise.GetNoise(wx, wy);
 
-    // --- Combine (weights control how much each layer dominates the silhouette) ---
+    // --- Combine ---
+    // INCREASED weights for mountains (0.6 -> 1.5) and terrain (0.25 -> 0.5)
     float height = continent * 1.00f
-        + mountains * 0.60f
-        + terrain * 0.25f
-        + detail * 0.08f
-        + micro * 0.02f;
+        + mountains * 2.50f
+        + terrain * 1.50f
+        + detail * 0.12f
+        + micro * 0.03f;
 
-    // Normalize from the theoretical combined range to [0, 1].
-    // NOTE: this range is not symmetric. "mountains" only ever adds (rangeMask
-    // and the ridged regional/local layers are >= 0), so the true minimum is
-    // continent(-1) + mountains(0) + terrain(-0.25) + detail(-0.08) + micro(-0.02) = -1.35,
-    // while the max is continent(1) + mountains(0.6) + terrain(0.25) + detail(0.08) + micro(0.02) = 1.95.
-    // The old symmetric -1.95..1.95 range compressed everything into the top
-    // ~80% of [0,1] (values below ~0.154 were unreachable), reducing contrast.
-    height = Remap(height, -1.35f, 1.95f, 0.0f, 1.0f);
+    // Recalculated normalization range based on new weights.
+    // Min: continent(-1.0) + mountains(0) + terrain(-0.5) + detail(-0.08) + micro(-0.02) = -1.60
+    // Max: continent(1.0) + mountains(1.5) + terrain(0.5) + detail(0.08) + micro(0.02) = 3.10
+    height = Remap(height, -1.60f, 3.10f, 0.0f, 1.0f);
     return Clamp01(height);
 }
-
 // --- Step 6a: simple thermal erosion (talus-angle smoothing) ---
 void HeightField::ApplyThermalErosion(HeightGrid& g, int iterations, float talusAngle, float amount) {
     for (int it = 0; it < iterations; ++it) {
@@ -263,14 +263,9 @@ HeightField::ColumnData HeightField::generateHeightColumn(int chunkX, int chunkZ
         }
     }
 
-    ApplyThermalErosion(hg, 5, 0.02f, 0.5f);
-    ApplyHydraulicErosion(hg, 512, HashChunkSeed(seed, chunkX, chunkZ));
-    ComputeFlowAccumulation(hg); // NOTE: result is currently discarded - flow
-                                  // accumulation is computed but never used to
-                                  // carve rivers/valleys into `hg`. Unrelated
-                                  // to the flatness/seam bugs above, but looks
-                                  // like an unfinished feature worth wiring in
-                                  // separately if rivers are wanted.
+    //ApplyThermalErosion(hg, 5, 0.02f, 0.5f);
+    //ApplyHydraulicErosion(hg, 512, HashChunkSeed(seed, chunkX, chunkZ));
+    //hg = ComputeFlowAccumulation(hg); // Apply flow accumulation to the eroded heightmap, so rivers are visible in the final output
 
     // Crop away the margin and transfer to the fixed-size column, scaling
     // normalized height -> block height here (after erosion, not before).

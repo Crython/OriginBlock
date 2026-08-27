@@ -624,6 +624,9 @@ void Engine::drawRect(float x, float y, float w, float h, glm::vec4 color) {
     glm::mat4 projection = glm::ortho(0.0f, (float)WINDOW_WIDTH, (float)WINDOW_HEIGHT, 0.0f);
     colorShader.setMat4("uProjection", projection);
 
+    // Allocate exactly enough space for 6 vertices of 2 floats each (x, y)
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 6 * 2, NULL, GL_DYNAMIC_DRAW);
+
     float vertices[] = {
         x,     y,
         x,     y + h,
@@ -707,7 +710,7 @@ int main()
     glfwWindowHint(GLFW_DOUBLEBUFFER, GLFW_TRUE);
 
     const char* ProjectName = "OriginBlock";
-	const std::string Version = "v0.1b";
+	const std::string Version = "v0.2a";
 
     std::cout << "[LOG] Attempting to create window..." << std::endl;
     GLFWwindow* window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, ProjectName, nullptr, nullptr);
@@ -749,7 +752,7 @@ int main()
 	}
 
     DebugExport debugExport;
-    std::string debugFilenameStr = "heightmaps/heightmap" + std::to_string(engine.overworld.worldSeed) + ".png";
+    std::string debugFilenameStr = "heightmap" + std::to_string(engine.overworld.worldSeed) + ".png";
     const char* debugFilename = debugFilenameStr.c_str();
     debugExport.writeChunkHeightmapPNG(-80, -80, 160, 160, 16, engine.overworld.worldSeed, debugFilename);
 /*

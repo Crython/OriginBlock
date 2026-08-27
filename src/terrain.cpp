@@ -260,7 +260,7 @@ void Terrain::generate(const ChunkCoord& chunkPos, const int seed, _Block(*block
 	for (int x = 0; x < CHUNK_SIZE; x++) { // 17 - 24 microseconds
         for (int z = 0; z < CHUNK_SIZE; z++) {
 
-            int height = colData->heightMap[x][z];
+            int height = colData->heightMap[z][x]; // Heightmap is stored as [z][x]
 
             int worldX = chunkPos.x * CHUNK_SIZE + x;
             int worldZ = chunkPos.z * CHUNK_SIZE + z; // Still needed for hash calculation below

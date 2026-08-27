@@ -44,7 +44,7 @@ void DebugExport::writeChunkHeightmapPNG(int startChunkX, int startChunkZ, int c
 
             for (int lz = 0; lz < chunkSize; lz++) {
                 for (int lx = 0; lx < chunkSize; lx++) {
-                    int h = colData->heightMap[lx][lz];
+                    int h = colData->heightMap[lz][lx];
 
                     int pixelX = cx * chunkSize + lx;
                     int pixelZ = cz * chunkSize + lz;
