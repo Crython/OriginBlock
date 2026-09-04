@@ -26,6 +26,7 @@ public: // Functions
     static float gammaCurve(float x, float gamma);
     static float sigmoidCurve(float x, float steepness = 10.0f);
     static void normalize3(float& a, float& b, float& c);
+	static float lerp(float a, float b, float t) { return a + t * (b - a); }
 
 private: // Internal containers
     inline static std::vector<TimerEntry> startTimes;

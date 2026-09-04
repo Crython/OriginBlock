@@ -430,15 +430,14 @@ void Engine::handleScrollInput() {
     printToChat("FOV: " + std::to_string(playerCamera.FOV), false, true);
 }
 
-
-
 /**
  * Render the world and UI.
  * Uses rotation-only view matrix with relative positioning for precision at large distances.
  */
 void Engine::render()
 {   
-    
+	// ----- Setup for rendering -----
+    // 
     // Bind textures to the GPU
     textures.bindBlockTextures();
     voxelShader.setInt("uBlockTextures", 0);
@@ -466,7 +465,8 @@ void Engine::render()
     // Unbind
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
-
+	// ----- Start rendering the world & UI-----
+    // 
     // Draw the overworld
     // Pass rotationOnlyVP for frustum extraction and shader uniforms
     overworld.draw(voxelShader, lightDir, rotationOnlyVP, playerCamera.position, verticesRendered);
@@ -482,6 +482,7 @@ void Engine::render()
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glBindVertexArray(0);
     
+	// ----- Start of Debug Stats and Chat Rendering -----
     // Draw Debug Stats (Top Left)
     
     std::stringstream posStream;
@@ -517,6 +518,12 @@ void Engine::render()
 
         dbgText = "Chunks: " + std::to_string(Terrain::getTotalChunksGenerated());
         text->renderText(dbgText, 10.0f, 155.0f, 1.0f, glm::vec3(1.0f, 0.25f, 0.2f), false); // Red debug information
+
+		// Sample climate values at the player's position
+        HeightField::TerrainNoise tn(overworld.worldSeed);
+		Biome::ClimateSample sample = Biome::sampleClimate(tn, (float)playerCamera.position.x, (float)playerCamera.position.z, overworld.worldSeed);
+        dbgText = "c=" + std::to_string(sample.continentalness) + ", e=" + std::to_string(sample.erosion) + ", p=" + std::to_string(sample.continentalness) + "\n\rt=" + std::to_string(sample.continentalness) + ", h=" + std::to_string(sample.continentalness) + ", w=" + std::to_string(sample.weirdness);
+        text->renderText(dbgText, 10.0f, 170.0f, 0.5f, glm::vec3(1.0f, 0.25f, 0.2f), false); // Red debug information
     }
 
     // Draw Chat
@@ -624,9 +631,6 @@ void Engine::drawRect(float x, float y, float w, float h, glm::vec4 color) {
     glm::mat4 projection = glm::ortho(0.0f, (float)WINDOW_WIDTH, (float)WINDOW_HEIGHT, 0.0f);
     colorShader.setMat4("uProjection", projection);
 
-    // Allocate exactly enough space for 6 vertices of 2 floats each (x, y)
-    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 6 * 2, NULL, GL_DYNAMIC_DRAW);
-
     float vertices[] = {
         x,     y,
         x,     y + h,
@@ -710,7 +714,7 @@ int main()
     glfwWindowHint(GLFW_DOUBLEBUFFER, GLFW_TRUE);
 
     const char* ProjectName = "OriginBlock";
-	const std::string Version = "v0.2a";
+	const std::string Version = "v0.2b";
 
     std::cout << "[LOG] Attempting to create window..." << std::endl;
     GLFWwindow* window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, ProjectName, nullptr, nullptr);
@@ -743,25 +747,30 @@ int main()
 
 
 	// Make sure the player is above the terrain
-	int playerLocalX = static_cast<int>(engine.playerCamera.position.x) % 16;
-	int playerLocalZ = static_cast<int>(engine.playerCamera.position.z) % 16;
-	int terrainHeightBelowPlayer = engine.terrain.getOrGenerateColumn(engine.playerCamera.position.x, engine.playerCamera.position.z, engine.overworld.worldSeed)->heightMap[playerLocalX][playerLocalZ];
+    // Take the floor of the modulo of the player position with 16 to get the chunk coordinates
+	int chunkX = static_cast<int>(std::floor(engine.playerCamera.position.x / 16.0f));
+	int chunkZ = static_cast<int>(std::floor(engine.playerCamera.position.z / 16.0f));
+	// Take the floor of the AND operator of the player position and 15 to get the local coordinates
+	int localX = static_cast<int>(std::floor(engine.playerCamera.position.x)) & 15;
+	int localZ = static_cast<int>(std::floor(engine.playerCamera.position.z)) & 15;
+
+	int terrainHeightBelowPlayer = engine.terrain.getOrGenerateColumn(chunkX, chunkZ, engine.overworld.worldSeed)->heightMap[localX][localZ];
 	//engine.playerCamera.isFlying = false; // Disable flying so we would collide with the terrain
 	while (engine.playerCamera.position.y < terrainHeightBelowPlayer + 5.0f && !engine.overworld.checkCollision(engine.playerCamera.position, engine.playerCamera.dimensions)) {
 		engine.playerCamera.position.y += 1.0f; // Move player up until they are above the terrain
 	}
 
     DebugExport debugExport;
-    std::string debugFilenameStr = "heightmap" + std::to_string(engine.overworld.worldSeed) + ".png";
+    std::string debugFilenameStr = "heightmaps/heightmap" + std::to_string(engine.overworld.worldSeed) + ".png";
     const char* debugFilename = debugFilenameStr.c_str();
     debugExport.writeChunkHeightmapPNG(-80, -80, 160, 160, 16, engine.overworld.worldSeed, debugFilename);
-/*
-    debugFilenameStr = "biomemaps/biomemap" + std::to_string(engine.overworld.worldSeed) + ".png";
-    debugFilename = debugFilenameStr.c_str();
-    //engine.terrain.writeChunkBiomemapPNG(-500, -500, 1000, 1000, 16, engine.overworld.worldSeed, debugFilename);
-    */
 
+    // File will go to (root or executable directory)/BiomeParamaters/<seed>
+	// Will write 6 .png images for each biome parameter (Continentalness, Erosion, Peaks, Temperature, Humidity, Weirdness) with it's respective parameter type as the filename
+    debugExport.writeClimateParametersPNG(-500, -500, 1000, 1000, engine.overworld.worldSeed);
+    /**/
 
+        
     // Timing
     const float FIXED_DT = 1.0f / 60.0f; // 60 updates/sec
     double previousTime = glfwGetTime();

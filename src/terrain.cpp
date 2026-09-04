@@ -288,7 +288,7 @@ void Terrain::generate(const ChunkCoord& chunkPos, const int seed, _Block(*block
     }
 
 	// Generate trees in the chunk
-    Vegetation::placeTreesInChunk(chunkPos.x, chunkPos.y, chunkPos.z, CHUNK_SIZE, seed, blocks, colData); // 40 - 65 microseconds
+    //Vegetation::placeTreesInChunk(chunkPos.x, chunkPos.y, chunkPos.z, CHUNK_SIZE, seed, blocks, colData); // 40 - 65 microseconds
 }
 
 uint32_t Terrain::setRandSeed(void* instancePtr) {

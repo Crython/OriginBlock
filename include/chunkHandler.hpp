@@ -4,9 +4,11 @@
 
 #include "types.hpp"
 #include "constants.hpp"
-#include "heightfield.hpp"
 #include "textureManager.hpp"
 #include "helpers.hpp"
+
+// Forward declaration to avoid circular dependency
+class HeightField;
 
 using FaceMask = uint16_t[CHUNK_SIZE]; // 16 rows x 16 bits
 
@@ -392,7 +394,7 @@ public:
     inline bool isPaddingSolid(const PaddingMasks& pad, int axis, int dir, int i, int j, int LOD_StepSize) const;
 
     int getDistanceFromPlayerSquared(const glm::dvec3& playerPos, const ChunkCoord& coord);
-    int getLODlevel(const int& LOD_DistanceSquared);
+    static int getLODlevel(const int& LOD_DistanceSquared);
 
     uint8_t getDirtyFlags() const;
     bool isDirty(DirtyFlags df) const;

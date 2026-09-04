@@ -13,7 +13,7 @@ void ColumnCache::clearCache() {
 std::shared_ptr<HeightField::ColumnData> ColumnCache::getOrGenerateColumn(int chunkX, int chunkZ, int seed) {
     uint64_t key = packCoords(chunkX, chunkZ);
 
-
+	// Find the column in the cache first
     {
         std::lock_guard<std::mutex> lock(cacheMutex);
         auto it = columnCache.find(key);
@@ -25,27 +25,11 @@ std::shared_ptr<HeightField::ColumnData> ColumnCache::getOrGenerateColumn(int ch
     // Generate if not found - allocate on heap immediately
     auto data = std::make_shared<HeightField::ColumnData>();
 
-
-    // Retrieve neighbors from cache to handle slope-aware attenuation across chunk boundaries
-    std::shared_ptr<HeightField::ColumnData> westCol = nullptr, eastCol = nullptr, northCol = nullptr, southCol = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(cacheMutex);
-        auto itW = columnCache.find(packCoords(chunkX - 1, chunkZ));
-        if (itW != columnCache.end()) westCol = itW->second;
-        auto itE = columnCache.find(packCoords(chunkX + 1, chunkZ));
-        if (itE != columnCache.end()) eastCol = itE->second;
-        auto itN = columnCache.find(packCoords(chunkX, chunkZ - 1));
-        if (itN != columnCache.end()) northCol = itN->second;
-        auto itS = columnCache.find(packCoords(chunkX, chunkZ + 1));
-        if (itS != columnCache.end()) southCol = itS->second;
-    }
-
     // Step 1: Initial height generation for the entire column
     HeightField::ColumnData cd = HeightField::generateHeightColumn(chunkX, chunkZ, seed);
 
     // Copy the values over 
-    memcpy(data->heightMap, cd.heightMap, 1024);
-    data->maxHeight = cd.maxHeight;
+    *data = cd;
     /*
     // Step 2: Apply 4-way slope-aware attenuation
     for (int x = 0; x < CHUNK_SIZE; x++) {

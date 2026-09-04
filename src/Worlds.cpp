@@ -542,7 +542,7 @@ bool World::isSolidBlockWorld(const glm::ivec3& worldPos)
  * Runs on a background thread to avoid blocking the main thread.
  * Sorts chunks by priority (distance, view direction, ground proximity).
  */
-void World::buildPlanTask(std::shared_ptr<World::LoadingPlan> plan, glm::vec3 viewDir, uint32_t seed) {
+void World::buildPlanTask(std::shared_ptr<World::LoadingPlan> plan, glm::vec3 viewDir, uint32_t seed, std::unordered_map<ChunkCoord, int, ChunkCoordHash> loadedSnapshot) {
     ChunkCoord center = {
         (int)std::floor(plan->playerPos.x / CHUNK_SIZE),
         (int)std::floor(plan->playerPos.y / CHUNK_SIZE),
@@ -572,12 +572,13 @@ void World::buildPlanTask(std::shared_ptr<World::LoadingPlan> plan, glm::vec3 vi
                 glm::dvec3 diff = plan->playerPos / (double)CHUNK_SIZE - chunkPosVec; // Subtract the chunk space player pos from the chunk pos
                 int squaredDistance = (int)(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
 
-                Chunk* cp = getChunk(c);
-                if (cp) { // Make sure that the chunk is valid
-                    int LOD_Level = cp->getLODlevel(squaredDistance);
-                    if (cp->chunkLOD != LOD_Level) {
+                // Use the thread-safe snapshot instead of directly accessing World::chunks
+                auto it = loadedSnapshot.find(c);
+                if (it != loadedSnapshot.end()) {
+                    int currentLOD = it->second;
+                    int targetLOD = Chunk::getLODlevel(squaredDistance);
+                    if (currentLOD != targetLOD) {
                         plan->needsLODRebuild.push_back(c);
-                        cp->chunkLOD = LOD_Level; // Set the LOD level early to avoid recomputation
                     }
                 }
 
@@ -670,8 +671,17 @@ void World::updateLoadedChunks(const glm::dvec3& playerPos, glm::vec3 viewDir, c
         plan->playerPos = playerPos;
         nextPlan = plan;
 
-        std::thread([this, plan, viewDir, seed]() {
-            buildPlanTask(plan, viewDir, seed);
+        // Capture a thread-safe snapshot of currently loaded chunk coordinates and their current LOD
+        std::unordered_map<ChunkCoord, int, ChunkCoordHash> loadedSnapshot;
+        loadedSnapshot.reserve(chunks.size());
+        for (const auto& [coord, chunkPtr] : chunks) {
+            if (chunkPtr) {
+                loadedSnapshot[coord] = chunkPtr->chunkLOD;
+            }
+        }
+
+        std::thread([this, plan, viewDir, seed, snapshot = std::move(loadedSnapshot)]() mutable {
+            buildPlanTask(plan, viewDir, seed, std::move(snapshot));
             std::lock_guard<std::mutex> lock(planMutex);
             planInProgressBar = false;
         }).detach();
@@ -727,6 +737,11 @@ void World::updateLoadedChunks(const glm::dvec3& playerPos, glm::vec3 viewDir, c
         auto it = chunks.find(cc);
         if (it != chunks.end() && it->second) {
             Chunk* c = it->second.get();
+            glm::dvec3 chunkPosVec = { cc.x, cc.y, cc.z };
+            glm::dvec3 diff = playerPos / (double)CHUNK_SIZE - chunkPosVec;
+            int squaredDistance = (int)(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
+            c->chunkLOD = Chunk::getLODlevel(squaredDistance);
+
             c->rebuildNeighbourLODs(playerPos); // Update the LOD's
             markDirty(c);  // Mark dirty, so the updates would take place
             
@@ -839,8 +854,7 @@ void World::finalizeChunkMesh(const ChunkCoord& coord, ChunkMesh&& mesh)
         return;
     }
 
-    // If a neighbor finished loading while we were meshing, we might be dirty again.
-    // We'll let the next rebuildDirtyChunks() pick it up.
+    c->clearDirty(Dirty_Mesh);
     bool wasMeshed = c->hasMesh();
     c->uploadMesh();
     
@@ -849,9 +863,6 @@ void World::finalizeChunkMesh(const ChunkCoord& coord, ChunkMesh&& mesh)
     } else if (wasMeshed && !c->hasMesh()) {
         activeMeshes.erase(std::remove(activeMeshes.begin(), activeMeshes.end(), c), activeMeshes.end());
     }
-    
-    // Note: clearDirty(Dirty_Mesh) is actually handled inside uploadMesh() or we do it here
-    c->clearDirty(Dirty_Mesh);
 
     if (c->meshDirtyDuringBuild) {
         c->meshDirtyDuringBuild = false;

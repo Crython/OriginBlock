@@ -3,6 +3,8 @@
 
 #include "FastNoiseLite/FastNoiseLite.h"
 #include "constants.hpp"
+#include "climate_types.hpp"
+
 
 class HeightField {
 public:
@@ -21,6 +23,14 @@ public:
         FastNoiseLite microNoise;       // step 4 - value/white
         FastNoiseLite warpNoiseX;       // step 5
         FastNoiseLite warpNoiseY;       // step 5
+
+        // ---------- climate noise setup ----------
+        FastNoiseLite temperatureNoise;   // fbm - broad climate bands
+        FastNoiseLite humidityNoise;      // fbm - independent moisture layer
+        FastNoiseLite weirdnessNoise;     // ridged fbm - mountains / unusual terrain
+        FastNoiseLite continentNoiseB;    // fbm - land vs. ocean (biome-side continentalness)
+		FastNoiseLite peaksNoise;         // ridged fbm - mountain peaks (biome-side)
+		FastNoiseLite erosionNoise;        // fbm - erosion / roughness (biome-side)
 
         float seaLevel = 0.0f; // in continent noise's [-1,1] space
 
@@ -78,6 +88,43 @@ public:
             warpNoiseY.SetSeed(seed + 10);
             warpNoiseY.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
             warpNoiseY.SetFrequency(0.0005f);
+
+
+            temperatureNoise.SetSeed(seed + 731);
+            temperatureNoise.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
+            temperatureNoise.SetFractalType(FastNoiseLite::FractalType_FBm);
+            temperatureNoise.SetFractalOctaves(3);
+            temperatureNoise.SetFrequency(0.0005f);
+
+            humidityNoise.SetSeed(seed + 1249);
+            humidityNoise.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
+            humidityNoise.SetFractalType(FastNoiseLite::FractalType_FBm);
+            humidityNoise.SetFractalOctaves(3);
+            humidityNoise.SetFrequency(0.00016f * 1.35f);
+
+            weirdnessNoise.SetSeed(seed + 3419);
+            weirdnessNoise.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
+            weirdnessNoise.SetFractalType(FastNoiseLite::FractalType_Ridged);
+            weirdnessNoise.SetFractalOctaves(4);
+            weirdnessNoise.SetFrequency(0.0001f);
+
+            continentNoiseB.SetSeed(seed + 3791);
+            continentNoiseB.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
+            continentNoiseB.SetFractalType(FastNoiseLite::FractalType_FBm);
+            continentNoiseB.SetFractalOctaves(4);
+            continentNoiseB.SetFrequency(0.0001f);
+
+            peaksNoise.SetSeed(seed + 4876);
+            peaksNoise.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
+            peaksNoise.SetFractalType(FastNoiseLite::FractalType_Ridged);
+            peaksNoise.SetFractalOctaves(4);
+            peaksNoise.SetFrequency(0.0002f);
+
+            erosionNoise.SetSeed(seed + 5000);
+            erosionNoise.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
+            erosionNoise.SetFractalType(FastNoiseLite::FractalType_FBm);
+            erosionNoise.SetFractalOctaves(4);
+            erosionNoise.SetFrequency(0.0002f);
         }
     };
 
@@ -111,10 +158,15 @@ public:
     };
 
     struct ColumnData {
-        float heightMap[CHUNK_SIZE][CHUNK_SIZE];
+		float heightMap[CHUNK_SIZE][CHUNK_SIZE];                 // Store height values for each cell
+		ClimateSample climateMap[CHUNK_SIZE][CHUNK_SIZE]; // Store climate samples for each cell
+
         float maxHeight;
         float& at(int x, int y) { return heightMap[y][x]; }
         float  at(int x, int y) const { return heightMap[y][x]; }
+
+        ClimateSample& atC(int x, int y) { return climateMap[y][x]; }
+        ClimateSample atC(int x, int y) const { return climateMap[y][x]; }
     };
 
 
@@ -122,11 +174,12 @@ public:
     static inline float Clamp01(float v);
     static inline float Remap(float v, float oldMin, float oldMax, float newMin, float newMax);
 
-    static float generateHeightCell(TerrainNoise& n, float worldX, float worldY);
+    static float generateHeightCell(TerrainNoise& n, ClimateSample sample, float worldX, float worldY);
     static void ApplyThermalErosion(HeightGrid& g, int iterations = 5, float talusAngle = 0.02f, float amount = 0.5f);
     static void ApplyHydraulicErosion(HeightGrid& g, int dropletCount, unsigned int seed);
     static HeightGrid ComputeFlowAccumulation(const HeightGrid& g);
 
+    static float ContinentalnessSpline(float c);
     static ColumnData generateHeightColumn(int chunkX, int chunkZ, unsigned int seed);
 };
 

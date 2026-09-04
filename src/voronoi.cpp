@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "voronoi.hpp"
+#include "heightfield.hpp"
 
 // Voronoi-local constants (climate frequencies now live in biome.cpp via Biome::sampleClimate)
 constexpr float VORONOI_JITTER = 0.7f;           // Site position randomization (0-1)
@@ -54,11 +55,12 @@ void Voronoi::initVoronoi(int seed, int numSites, float mapSize, float startX, f
         float wsx = sx, wsz = sz;
         Noise::domainWarp(wsx, wsz, seed + 555);
 
-        // Assign climate parameters via the shared helper
-        Biome::ClimateSample climate = Biome::sampleClimate(wsx, wsz, seed);
+		HeightField::TerrainNoise tn(seed);
 
-        Biome::BiomeType siteBiome = Biome::computeBiomeFromClimate(
-            climate.temp, climate.moisture, climate.weird, climate.continent);
+        // Assign climate parameters via the shared helper
+        Biome::ClimateSample climate = Biome::sampleClimate(tn, wsx, wsz, seed);
+
+        Biome::BiomeType siteBiome = Biome::computeBiomeFromClimate(climate.temperature, climate.humidity, climate.weirdness, climate.continentalness);
         size_t siteIdx = voronoiSites.size();
         voronoiSites.push_back({ sx, sz, siteBiome });
 
@@ -133,16 +135,17 @@ Biome::BiomeType Voronoi::sampleBiomeCell(int bx, int bz, int seed) {
     }
 
     // Global climate parameters for ocean detection (shared formula via Biome::sampleClimate)
-    Biome::ClimateSample climate = Biome::sampleClimate(wx, wz, seed);
+    HeightField::TerrainNoise tn(seed);
+    Biome::ClimateSample climate = Biome::sampleClimate(tn, wx, wz, seed);
 
     // Dynamic threshold for more natural, noisy coastlines
     float beachNoise = 0.5f; // openSimplex2(wx * 0.1f, wz * 0.1f, seed + 888) * BEACH_NOISE_SCALE;
     float dynamicThreshold = OCEAN_THRESHOLD_V + beachNoise;
 
     // Decision logic using overrides (e.g. Ocean)
-    if (climate.continent < dynamicThreshold) {
-        if (climate.temp > 0.7f) return Biome::BiomeType::WarmOcean;
-        else if (climate.temp < 0.3f) return Biome::BiomeType::ArticOcean;
+    if (climate.continentalness < dynamicThreshold) {
+        if (climate.temperature > 0.7f) return Biome::BiomeType::WarmOcean;
+        else if (climate.temperature < 0.3f) return Biome::BiomeType::ArticOcean;
         else return Biome::BiomeType::Ocean;
     }
 

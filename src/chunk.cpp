@@ -184,14 +184,11 @@ void Chunk::uploadMesh()
 {
     meshGPU.upload(meshCPU);
 
-    // Only clear if not marked dirty
-    if (!isDirty(Dirty_Mesh)) {
-        meshCPU.clear();
-
-        for (int i = 0; i < 6; ++i) {
-            meshCPU.vertices[i].shrink_to_fit();
-            meshCPU.indices[i].shrink_to_fit();
-        }
+    // Free CPU vertex and index memory now that it has been uploaded to the GPU
+    meshCPU.clear();
+    for (int i = 0; i < 6; ++i) {
+        meshCPU.vertices[i].shrink_to_fit();
+        meshCPU.indices[i].shrink_to_fit();
     }
 }
 

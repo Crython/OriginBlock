@@ -2,8 +2,10 @@
 #define NOISE_HPP
 
 #include "pch.h"
-#include "chunkHandler.hpp"
+#include <cstdint>
 
+// Forward declaration to avoid circular dependency
+struct ChunkCoord;
 
 class Noise {
 public:
@@ -30,14 +32,7 @@ private:
         return a + (b - a) * t;
     }
 
-    static inline uint32_t chunkSeed(const ChunkCoord& c, int seed) {
-        uint32_t h = 0;
-        h ^= mix(static_cast<uint32_t>(c.x));
-        h ^= mix(static_cast<uint32_t>(c.y) + 0x9e3779b1);
-        h ^= mix(static_cast<uint32_t>(c.z) + 0x85F99D69);
-        h ^= mix(static_cast<uint32_t>(seed));
-        return mix(h);
-    }
+    static uint32_t chunkSeed(const ChunkCoord& c, int seed);
 };
 
 #endif // NOISE_HPP

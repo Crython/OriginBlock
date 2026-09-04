@@ -1,4 +1,5 @@
 #include "heightfield.hpp"
+#include "biome.hpp"
 #include "helpers.hpp"
 #include <random>
 /*
@@ -29,29 +30,70 @@ inline float HeightField::Clamp01(float v) { return std::max(0.0f, std::min(1.0f
 inline float HeightField::Remap(float v, float oldMin, float oldMax, float newMin, float newMax) {
     return newMin + (v - oldMin) * (newMax - newMin) / (oldMax - oldMin);
 }
+// Continentalness -> elevation curve. Oceans sit in a shelf, land rises with
+// distance from the coast. Control points are a starting point - tune to taste.
+float HeightField::ContinentalnessSpline(float c) {
+    struct Point { float c, h; };
+    static const Point pts[] = {
+        {0.00f, -1.00f}, // deep ocean floor
+        {0.20f, -0.55f}, // ocean
+        {0.35f, -0.15f}, // continental shelf
+        {0.42f,  0.00f}, // coastline
+        {0.55f,  0.20f}, // near-inland plains
+        {0.75f,  0.55f}, // mid-inland hills
+        {1.00f,  1.00f}, // far-inland highlands
+    };
+    constexpr int n = sizeof(pts) / sizeof(pts[0]);
+    c = Clamp01(c);
+    for (int i = 0; i < n - 1; ++i) {
+        if (c <= pts[i + 1].c) {
+            float t = (c - pts[i].c) / (pts[i + 1].c - pts[i].c);
+            return Helpers::lerp(pts[i].h, pts[i + 1].h, t);
+        }
+    }
+    return pts[n - 1].h;
+}
 
 // Steps 1-5: returns height normalized to [0, 1]
-float HeightField::generateHeightCell(TerrainNoise& n, float worldX, float worldY) {
-    // --- Step 1: continents / oceans (never warped, sets the big picture) ---
-    float continent = n.continentNoise.GetNoise(worldX, worldY); // [-1, 1]
+float HeightField::generateHeightCell(TerrainNoise& n, Biome::ClimateSample sample, float worldX, float worldY) {
 
-    // --- Step 2: tectonic activity ---
+    // --- Step 1: continents / oceans, driven by climate continentalness ---
+    // Using the same continentalness the biome system uses guarantees oceans
+    // are actually low and inland is actually high - the two systems can't
+    // disagree about where the coastline is anymore.
+    float continent = ContinentalnessSpline(sample.continentalness);
+    // A touch of independent noise on top keeps fine-grained variation
+    // instead of a perfectly smooth spline everywhere.
+    continent += n.continentNoise.GetNoise(worldX, worldY) * 0.05f;
+
+    // --- Step 2: tectonic activity, softened by climate erosion ---
     float tectonics = n.tectonicNoise.GetNoise(worldX, worldY);   // [-1, 1]
     // INCREASED FLOOR from 0.15f to 0.30f to make plains more hilly/bumpy
     float tectonicFactor = Remap(tectonics, -1.0f, 1.0f, 0.30f, 1.0f);
+    // erosion=0 (pristine) -> unchanged; erosion=1 (heavily eroded) -> pulled
+    // toward half strength, so worn-down regions can't raise sharp ranges
+    tectonicFactor *= Remap(sample.erosion, 0.0f, 1.0f, 1.0f, 0.50f);
 
-    // --- Step 3: mountain range mask ---
+    // --- Step 3: mountain range mask, gated by climate peaks ---
     float rangeMask = n.rangeMaskNoise.GetNoise(worldX, worldY);  // ridged -> roughly [0,1]
     rangeMask = Clamp01(rangeMask);
-    
-    // Optional: You can square the mask to make mountains rise more sharply from the plains
-    // rangeMask = rangeMask * rangeMask; 
-    
-    rangeMask *= tectonicFactor;
 
-    // --- Step 5: domain warp (applied to everything except continent) ---
-    float warpX = n.warpNoiseX.GetNoise(worldX, worldY) * 300.0f;
-    float warpY = n.warpNoiseY.GetNoise(worldX, worldY) * 300.0f;
+    // Optional: You can square the mask to make mountains rise more sharply from the plains
+    // rangeMask = rangeMask * rangeMask;
+
+    rangeMask *= tectonicFactor;
+    // `peaks` is already erosion-aware (see sampleClimate) and is what the
+    // biome map calls a "peaks" region - tie the mountain mask to it so the
+    // tallest terrain lines up with the peaks biome, not just wherever the
+    // local tectonic noise happens to spike.
+    rangeMask = Clamp01(rangeMask * Remap(sample.peaks, 0.0f, 1.0f, 0.5f, 1.2f));
+
+    // --- Step 5: domain warp, strength driven by climate weirdness ---
+    // weird regions get more contorted, chaotic terrain; ordinary regions
+    // stay closer to the raw noise shapes
+    float warpStrength = Remap(sample.weirdness, 0.0f, 1.0f, 0.7f, 1.3f);
+    float warpX = n.warpNoiseX.GetNoise(worldX, worldY) * 300.0f * warpStrength;
+    float warpY = n.warpNoiseY.GetNoise(worldX, worldY) * 300.0f * warpStrength;
     float wx = worldX + warpX;
     float wy = worldY + warpY;
 
@@ -61,10 +103,15 @@ float HeightField::generateHeightCell(TerrainNoise& n, float worldX, float world
     float mountains = rangeMask * ((regional + local) * 0.5f);
 
     float terrain = n.terrainNoise.GetNoise(wx, wy);
+    // general (non-range) terrain roughness also flattens under erosion, not
+    // just the mountain ranges
+    terrain *= Remap(sample.erosion, 0.0f, 1.0f, 1.0f, 0.60f);
 
     float detailCell = n.detailCellular.GetNoise(wx, wy);
     float detailFbmV = n.detailFbm.GetNoise(wx, wy);
     float detail = (detailCell + detailFbmV) * 0.5f;
+    // extra high-frequency chaos in weird regions
+    detail *= Remap(sample.weirdness, 0.0f, 1.0f, 0.85f, 1.25f);
 
     float micro = n.microNoise.GetNoise(wx, wy);
 
@@ -76,12 +123,16 @@ float HeightField::generateHeightCell(TerrainNoise& n, float worldX, float world
         + detail * 0.12f
         + micro * 0.03f;
 
-    // Recalculated normalization range based on new weights.
-    // Min: continent(-1.0) + mountains(0) + terrain(-0.5) + detail(-0.08) + micro(-0.02) = -1.60
-    // Max: continent(1.0) + mountains(1.5) + terrain(0.5) + detail(0.08) + micro(0.02) = 3.10
+    // NOTE: these bounds were already stale before this change (the comment
+    // claims mountains max 1.5 but the weight above is 2.50), and the new
+    // erosion/peaks/weirdness multipliers shift the true min/max further out.
+    // Treat -1.60/3.10 as an approximation - re-tune by sampling a large
+    // batch of cells, logging the true pre-remap min/max, and using that.
     height = Remap(height, -1.60f, 3.10f, 0.0f, 1.0f);
     return Clamp01(height);
 }
+
+
 // --- Step 6a: simple thermal erosion (talus-angle smoothing) ---
 void HeightField::ApplyThermalErosion(HeightGrid& g, int iterations, float talusAngle, float amount) {
     for (int it = 0; it < iterations; ++it) {
@@ -200,6 +251,7 @@ HeightField::HeightGrid HeightField::ComputeFlowAccumulation(const HeightGrid& g
     return flow;
 }
 
+
 namespace {
     // Mixes the world seed with chunk coordinates into a well-distributed
     // per-chunk seed. Previously every chunk passed the same raw world seed
@@ -220,62 +272,22 @@ namespace {
 }
 
 HeightField::ColumnData HeightField::generateHeightColumn(int chunkX, int chunkZ, unsigned int seed) {
-
-    // Initialize noise
     TerrainNoise tn(seed);
-
-    // Both erosion passes only ever touch the *interior* of the grid (their
-    // loops skip the outermost ring - see `x = 1; x < g.width - 1`). With a
-    // grid sized exactly CHUNK_SIZE x CHUNK_SIZE, that untouched ring IS the
-    // chunk edge, so it never gets eroded, and each chunk erodes completely
-    // independently of its neighbor. The mismatch at that shared edge is
-    // what shows up as chunk-boundary seams.
-    //
-    // Fix: sample a padded region extending `margin` cells past every edge,
-    // erode the padded grid, then keep only the interior. Thermal erosion
-    // moves height at most 1 cell per iteration, so a margin strictly
-    // greater than the iteration count guarantees the interior we keep is
-    // identical to what an infinite (unchunked) grid would have produced.
-    // (Hydraulic erosion's random droplets can in theory travel further, so
-    // this padding greatly reduces but can't perfectly eliminate hydraulic
-    // seams - bump `margin` up further if any are still visible.)
-    const int margin = 6; // > the 5 thermal erosion iterations below
-    const int gridSize = CHUNK_SIZE + margin * 2;
-
-    HeightGrid hg;
-    hg.init(gridSize, gridSize);
-
-    for (int z = 0; z < gridSize; z++) {
-        float wz = static_cast<float>(chunkZ * CHUNK_SIZE + (z - margin));
-        for (int x = 0; x < gridSize; x++) {
-            float wx = static_cast<float>(chunkX * CHUNK_SIZE + (x - margin));
-
-            // Keep this normalized to [0, 1]. ApplyThermalErosion's and
-            // ApplyHydraulicErosion's parameters (talusAngle 0.02f, the
-            // 0.01f erosion cap, etc.) are tuned for that range - scaling to
-            // block height (~32-160) before eroding made every ordinary
-            // slope look enormous next to those thresholds, so thermal
-            // erosion aggressively flattened real terrain features every
-            // iteration and left only the small-scale detail/micro noise
-            // visible. Scaling now happens after erosion, in the crop loop
-            // below, instead of before.
-            hg.at(x, z) = generateHeightCell(tn, wx, wz);
-        }
-    }
-
-    //ApplyThermalErosion(hg, 5, 0.02f, 0.5f);
-    //ApplyHydraulicErosion(hg, 512, HashChunkSeed(seed, chunkX, chunkZ));
-    //hg = ComputeFlowAccumulation(hg); // Apply flow accumulation to the eroded heightmap, so rivers are visible in the final output
-
-    // Crop away the margin and transfer to the fixed-size column, scaling
-    // normalized height -> block height here (after erosion, not before).
     ColumnData cd;
-    cd.maxHeight = 0; // Initialize maxHeight
+    cd.maxHeight = 0.0f;
+
     for (int z = 0; z < CHUNK_SIZE; z++) {
+        float wz = static_cast<float>(chunkZ * CHUNK_SIZE + z);
         for (int x = 0; x < CHUNK_SIZE; x++) {
-            float h = hg.at(x + margin, z + margin) * 128.0f + 32.0f;
+            float wx = static_cast<float>(chunkX * CHUNK_SIZE + x);
+
+			// Get biome params, so we can use them to scale the height/density appropriately. Use the same terrain noise to sample climate, so that the biome is consistent with the terrain.
+			Biome::ClimateSample s = Biome::sampleClimate(tn, wx, wz, seed);
+			cd.atC(x, z) = s;
+
+            float h = generateHeightCell(tn, s, wx, wz) * 128.0f + 32.0f;
             cd.at(x, z) = h;
-            cd.maxHeight = (cd.maxHeight < h) ? h : cd.maxHeight;
+            if (cd.maxHeight < h) cd.maxHeight = h;
         }
     }
 

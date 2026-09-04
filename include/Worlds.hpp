@@ -131,7 +131,7 @@ public:
     bool isChunkHiddenSolid(const ChunkCoord& c);
 
 
-    void buildPlanTask(std::shared_ptr<World::LoadingPlan> plan, glm::vec3 viewDir, uint32_t seed);
+    void buildPlanTask(std::shared_ptr<World::LoadingPlan> plan, glm::vec3 viewDir, uint32_t seed, std::unordered_map<ChunkCoord, int, ChunkCoordHash> loadedSnapshot);
 
     // Threaded chunk loading support
     void finalizeChunkLoad(const ChunkCoord& coord, std::shared_ptr<Chunk> chunk);

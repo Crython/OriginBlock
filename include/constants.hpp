@@ -3,8 +3,8 @@
 #define CONSTANTS_HPP
 
 // Window constants
-constexpr size_t WINDOW_WIDTH = 2560; // 1280
-constexpr size_t WINDOW_HEIGHT = 1440; // 720
+constexpr size_t WINDOW_WIDTH = 1280; // 1280
+constexpr size_t WINDOW_HEIGHT = 720; // 720
 
 // Math constants
 constexpr float PI = 3.14159265358979323846f;

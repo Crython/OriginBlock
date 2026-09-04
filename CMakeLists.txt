@@ -105,7 +105,8 @@ add_executable(OriginBlock "src/OriginBlock.cpp" "src/glad/glad.c" "src/shader.c
 
 # Define DEBUG_EXPORT_ENABLED for Debug builds
 # Uses a generator expression so it works correctly with multi-config generators (e.g. MSVC/Ninja Multi-Config)
-target_compile_definitions(OriginBlock PRIVATE $<$<CONFIG:Debug>:DEBUG_EXPORT_ENABLED>)
+#target_compile_definitions(OriginBlock PRIVATE $<$<CONFIG:Debug>:DEBUG_EXPORT_ENABLED>)
+target_compile_definitions(OriginBlock PRIVATE $<$<CONFIG:Release>:DEBUG_EXPORT_ENABLED>) # Enable debug export in Release builds for testing purposes. Remove this line in production builds.
 
 # Include headers
 target_include_directories(OriginBlock PRIVATE ${PROJECT_SOURCE_DIR}/include)

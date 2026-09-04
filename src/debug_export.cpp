@@ -118,111 +118,97 @@ void DebugExport::writeChunkHeightmapPNG(int startChunkX, int startChunkZ, int c
     std::cout << "Heightmap exported to " << filename << " (minH: " << minH << ", maxH: " << maxH << ")" << std::endl;
 }
 
-void DebugExport::writeChunkBiomemapPNG(int startChunkX, int startChunkZ, int chunkCountX, int chunkCountZ, int chunkSize, int seed, const char* filename)
+namespace fs = std::filesystem;
+
+void DebugExport::writeClimateParametersPNG(int startChunkX, int startChunkZ, int chunkCountX, int chunkCountZ, int seed)
 {
-    if (chunkCountX <= 0 || chunkCountZ <= 0 || !filename) return;
+    if (chunkCountX <= 0 || chunkCountZ <= 0) return;
 
     const int width = chunkCountX;
     const int height = chunkCountZ;
+    const size_t pixelCount = static_cast<size_t>(width) * height;
 
-    std::vector<uint8_t> image;
+    // 1. Create the nested folders: BiomeParameters/<seed>
+    fs::path exportDir = fs::path("BiomeParameters") / std::to_string(seed);
     try {
-        image.resize(static_cast<size_t>(width) * height * 3);
+        fs::create_directories(exportDir);
     }
-    catch (...) {
-        return; // Allocation failed
-    }
-
-
-    // First pass: sample heights and find min/max
-    std::vector<Biome::BiomeType> biomes;
-    try {
-        biomes.resize(static_cast<size_t>(width) * height);
-    }
-    catch (...) {
+    catch (const fs::filesystem_error& e) {
+        std::cerr << "Failed to create directories: " << e.what() << '\n';
         return;
     }
 
-    int minSize = std::min(chunkCountX, chunkCountZ);
+    // 2. Pre-allocate flat arrays for all 6 grayscale images (1 byte per pixel)
+    std::vector<uint8_t> continentalness;
+    std::vector<uint8_t> peaks;
+    std::vector<uint8_t> temperature;
+    std::vector<uint8_t> humidity;
+    std::vector<uint8_t> weirdness;
+    std::vector<uint8_t> erosion;
+
+    try {
+        continentalness.resize(pixelCount);
+        peaks.resize(pixelCount);
+        temperature.resize(pixelCount);
+        humidity.resize(pixelCount);
+        weirdness.resize(pixelCount);
+        erosion.resize(pixelCount);
+    }
+    catch (...) {
+        std::cerr << "Memory allocation failed for climate maps.\n";
+        return;
+    }
+
     auto startTime = std::chrono::high_resolution_clock::now();
 
-    Voronoi::initVoronoi(seed, static_cast<int>(minSize / 4.f), minSize, static_cast<float>(startChunkX), static_cast<float>(startChunkZ));
-    for (int cz = 0; cz < chunkCountZ; ++cz) {
-        for (int cx = 0; cx < chunkCountX; ++cx) {
-            int bx = startChunkX + cx;
-            int bz = startChunkZ + cz;
-            biomes[cz * width + cx] = Voronoi::sampleBiomeCell(bx, bz, seed);
+    // 3. Single pass: Sample climate and write to pixel buffers simultaneously
+    HeightField::TerrainNoise tn(seed);
+
+    for (int cz = 0; cz < height; ++cz) {
+        for (int cx = 0; cx < width; ++cx) {
+            float bx = static_cast<float>((startChunkX + cx) * CHUNK_SIZE);
+            float bz = static_cast<float>((startChunkZ + cz) * CHUNK_SIZE);
+
+            Biome::ClimateSample sample = Biome::sampleClimate(tn, bx, bz, seed);
+
+            // Calculate 1D index for the flat vectors
+            size_t i = static_cast<size_t>(cz) * width + cx;
+
+            // Convert normalized float [0.0, 1.0] to uint8_t [0, 255]. 
+            // std::clamp ensures out-of-bounds floats don't wrap around and cause visual glitches.
+            continentalness[i] = static_cast<uint8_t>(std::clamp(sample.continentalness, 0.0f, 1.0f) * 255.0f);
+            peaks[i] = static_cast<uint8_t>(std::clamp(sample.peaks, 0.0f, 1.0f) * 255.0f);
+            temperature[i] = static_cast<uint8_t>(std::clamp(sample.temperature, 0.0f, 1.0f) * 255.0f);
+            humidity[i] = static_cast<uint8_t>(std::clamp(sample.humidity, 0.0f, 1.0f) * 255.0f);
+            weirdness[i] = static_cast<uint8_t>(std::clamp(sample.weirdness, 0.0f, 1.0f) * 255.0f);
+            erosion[i] = static_cast<uint8_t>(std::clamp(sample.erosion, 0.0f, 1.0f) * 255.0f);
         }
     }
-    auto endTime = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> elapsed = endTime - startTime;
-    std::cout << "Biome map generation took: " << elapsed.count() << " seconds for " << width << "x" << height << " cells.\n";
 
+    auto sampleEndTime = std::chrono::high_resolution_clock::now();
+    std::cout << "Climate sampling took: "
+        << std::chrono::duration<double>(sampleEndTime - startTime).count()
+        << " seconds.\n";
 
-    // Second pass: write pixels
-    for (int i = 0; i < width * height; ++i) {
+    // 4. Helper lambda to write a single PNG to the correct folder
+    auto saveMap = [&](const std::string& name, const std::vector<uint8_t>& data) {
+        fs::path filePath = exportDir / (name + ".png");
+        // Channels set to 1 for grayscale. Stride is just 'width' since it's 1 byte per pixel.
+        stbi_write_png(filePath.string().c_str(), width, height, 1, data.data(), width);
+        };
 
-        uint8_t r;
-        uint8_t g;
-        uint8_t b;
+    // 5. Save all 6 images
+    saveMap("continentalness", continentalness);
+    saveMap("peaks", peaks);
+    saveMap("temperature", temperature);
+    saveMap("humidity", humidity);
+    saveMap("weirdness", weirdness);
+    saveMap("erosion", erosion);
 
-        switch (biomes[i]) {
-        case Biome::BiomeType::None:
-            r = 0; g = 0; b = 0; // Black
-            break;
-        case Biome::BiomeType::Ocean:
-            r = 0; g = 0; b = 128; // Dark Blue
-            break;
-        case Biome::BiomeType::WarmOcean:
-            r = 0; g = 0; b = 255; // Blue
-            break;
-        case Biome::BiomeType::ArticOcean:
-            r = 128; g = 128; b = 255; // Light Blue
-            break;
-        case Biome::BiomeType::Desert:
-            r = 237; g = 201; b = 175; // Sandy
-            break;
-        case Biome::BiomeType::Savanna:
-            r = 189; g = 183; b = 107; // Khaki
-            break;
-        case Biome::BiomeType::Jungle:
-            r = 0; g = 100; b = 0; // Dark green
-            break;
-        case Biome::BiomeType::Plains:
-            r = 124; g = 252; b = 0; // Lawn Green
-            break;
-        case Biome::BiomeType::Woodland:
-            r = 107; g = 142; b = 35; // Olive green for distinction
-            break;
-        case Biome::BiomeType::Forest:
-            r = 34; g = 139; b = 34; // Forest Green
-            break;
-        case Biome::BiomeType::Tundra:
-            r = 176; g = 196; b = 222; // Light Steel Blue
-            break;
-        case Biome::BiomeType::SnowyTaiga:
-            r = 255; g = 250; b = 250; // Snow
-            break;
-        case Biome::BiomeType::Mountains:
-            r = 139; g = 137; b = 137; // Light Gray
-            break;
-        case Biome::BiomeType::Badlands:
-            r = 210; g = 105; b = 30; // Chocolate
-            break;
-        case Biome::BiomeType::Volcano:
-            r = 178; g = 34; b = 34; // Firebrick
-            break;
-        default:
-            r = 0; g = 0; b = 0; // Black for unknown
-        }
-
-
-        image[i * 3 + 0] = r; // R
-        image[i * 3 + 1] = g; // G
-        image[i * 3 + 2] = b; // B
-    }
-
-    stbi_write_png(filename, width, height, 3, image.data(), width * 3);
+    auto totalEndTime = std::chrono::high_resolution_clock::now();
+    std::cout << "Total export (including PNG compression) took: "
+        << std::chrono::duration<double>(totalEndTime - startTime).count()
+        << " seconds.\n";
 }
 
 #else 
@@ -230,7 +216,7 @@ void DebugExport::writeChunkBiomemapPNG(int startChunkX, int startChunkZ, int ch
 // If DEBUG_EXPORT_ENABLED is not defined, provide empty implementations to avoid linker errors
 // This allows the code to compile in releas mode without the debug export functionality.
 // The compiler will optimize these empty functions away, so they won't affect performance or binary size.
-void DebugExport::writeChunkHeightmapPNG(int startChunkX, int startChunkZ, int chunkCountX, int chunkCountZ, int chunkSize, int seed, const char* filename) {}
-void DebugExport::writeChunkBiomemapPNG(int startChunkX, int startChunkZ, int chunkCountX, int chunkCountZ, int chunkSize, int seed, const char* filename) {}
+void DebugExport::writeChunkHeightmapPNG(int startChunkX, int startChunkZ, int chunkCountX, int chunkCountZ, int chunkSize, int seed, const char* filename) { std::cout << "Heightmap: Debug export not enabled.\n";}
+void DebugExport::writeClimateParametersPNG(int startChunkX, int startChunkZ, int chunkCountX, int chunkCountZ, int seed) { std::cout << "Climate Parameters: Debug export not enabled.\n";}
 
 #endif // DEBUG_EXPORT_ENABLED

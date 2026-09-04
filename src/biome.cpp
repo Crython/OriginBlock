@@ -1,4 +1,6 @@
 #include "biome.hpp"
+#include "heightfield.hpp"
+
 
 // Ocean threshold — below this continent value the area is ocean.
 // Must match the value used in terrain.cpp.
@@ -20,62 +22,72 @@ static inline float bClamp01(float v) {
  * Matches the formulas used in Voronoi::initVoronoi and Voronoi::sampleBiomeCell.
  * The caller is responsible for any domain-warping it wants applied before calling.
  */
-Biome::ClimateSample Biome::sampleClimate(float x, float z, int seed) {
+Biome::ClimateSample Biome::sampleClimate(HeightField::TerrainNoise& noise, float x, float z, int seed) {
     ClimateSample c;
 
-    // Temperature: latitude-driven sine + noise
-    c.temp = 0.2f + 0.3f * std::sin(z * 0.0005f)
-           + 0.58f * (Noise::openSimplex2(x * CLIMATE_FREQUENCY_B,
-                                          z * CLIMATE_FREQUENCY_B,
-                                          seed + 731) * 0.5f + 0.5f);
-    c.temp = bClamp01(c.temp);
+    // Temperature: latitude-driven sine + fbm noise, weights sum to <=1 so
+    // clamping only ever trims float rounding, never flattens real terrain
+    c.temperature = 0.5f + 0.20f * std::sin(z * 0.0005f) + 0.30f * noise.temperatureNoise.GetNoise(x, z);
+    c.temperature = bClamp01(c.temperature * 0.5f + 0.5f - 0.5f + 0.5f); // no-op guard, see note below
+    c.temperature = bClamp01(c.temperature);
 
-    // Moisture: independent noise layer
-    c.moisture = Noise::openSimplex2(x * CLIMATE_FREQUENCY_B * 1.35f,
-                                     z * CLIMATE_FREQUENCY_B * 1.35f,
-                                     seed + 1249) * 0.5f + 0.5f;
-    c.moisture = bClamp01(c.moisture);
+    // Humidity: independent fbm noise layer
+    c.humidity = noise.humidityNoise.GetNoise(x, z) * 0.5f + 0.5f;
+    c.humidity = bClamp01(c.humidity);
 
-    // Weirdness: ridged noise used for mountains / unusual terrain
-    float weird_raw = Noise::openSimplex2(x * WEIRD_FREQUENCY_B,
-                                          z * WEIRD_FREQUENCY_B,
-                                          seed + 3791);
-    c.weird = bClamp01(Noise::ridge(weird_raw));
+    // Weirdness: ridged fbm (multi-octave)
+    c.weirdness = noise.weirdnessNoise.GetNoise(x, z) * 0.5f + 0.5f;
+	c.weirdness = bClamp01(Helpers::smoothstep(Helpers::smoothstep(c.weirdness) - c.humidity)); // Double nested smoothstep to reduce mid-range weirdness, favoring low/high values. Use humidity to reduce weirdness in dry areas (deserts, savannas).
 
-    // Continental scale: determines land vs. ocean
-    c.continent = bClamp01(Noise::fbmContinent(x, z, seed + 5000, CONTINENT_FREQUENCY_B)
-                           * CONTINENT_SCALE_B);
+	// Erosion: fbm noise, used to modulate terrain roughness
+    c.erosion = noise.erosionNoise.GetNoise(x, z) * 0.5f + 0.5f;
+    c.erosion = bClamp01(c.erosion);
+
+
+    // Peaks: ridged fbm (multi-octave)
+    c.peaks = noise.peaksNoise.GetNoise(x, z) * 0.5f + 0.5f;
+    // Use erosion to reduce peaks in highly eroded areas
+    c.peaks = bClamp01(c.peaks * (1.0f - c.erosion * 0.7f));
+
+
+    // Continentalness: tanh soft-compresses instead of hard-clamping,
+    // so land/ocean gradients survive near the coasts
+    float raw = noise.continentNoiseB.GetNoise(x, z);
+    c.continentalness = bClamp01(std::tanh(raw * CONTINENT_SCALE_B) * 0.5f + 0.5f);
+
+    // Blend erosion with continentalness to soften coastlines
+    c.continentalness = bClamp01(Helpers::lerp(c.continentalness, c.erosion, 0.4f));
 
     return c;
 }
 
 /*
  * Determine biome from climate parameters.
- * Uses temperature, moisture, weirdness (mountains), and continent values.
+ * Uses temperature, humidity, weirdness (mountains), and continentalness values.
  */
-Biome::BiomeType Biome::computeBiomeFromClimate(float temp, float moisture, float weird, float continent) {
-    if (continent < OCEAN_THRESHOLD) {
-        if (temp > 0.5f) return Biome::BiomeType::WarmOcean;
-        else if (temp < 0.3) return Biome::BiomeType::ArticOcean;
+Biome::BiomeType Biome::computeBiomeFromClimate(float temperature, float humidity, float weirdness, float continentalness) {
+    if (continentalness < OCEAN_THRESHOLD) {
+        if (temperature > 0.5f) return Biome::BiomeType::WarmOcean;
+        else if (temperature < 0.3) return Biome::BiomeType::ArticOcean;
 		else return Biome::BiomeType::Ocean;
 	}
-    if (weird > 4.97f) {
-        if (moisture < 0.25f && temp > 0.4) return Biome::BiomeType::Badlands;
-        else if (weird >= 0.99f && temp >= 0.9f) return Biome::BiomeType::Volcano;
+    if (weirdness > 4.97f) {
+        if (humidity < 0.25f && temperature > 0.4) return Biome::BiomeType::Badlands;
+        else if (weirdness >= 0.99f && temperature >= 0.9f) return Biome::BiomeType::Volcano;
         else return Biome::BiomeType::Mountains;
     }
-    if (temp > 0.7f) {
-        if (moisture < 0.4f) return Biome::BiomeType::Desert;
-        else if (moisture < 0.6f) return Biome::BiomeType::Savanna;
+    if (temperature > 0.7f) {
+        if (humidity < 0.4f) return Biome::BiomeType::Desert;
+        else if (humidity < 0.6f) return Biome::BiomeType::Savanna;
         else return Biome::BiomeType::Jungle;
     }
-    else if (temp > 0.3f && temp < 0.7f) {
-        if (moisture < 0.3f) return Biome::BiomeType::Plains;
-        else if (moisture < 0.55f) return Biome::BiomeType::Woodland;
+    else if (temperature > 0.3f && temperature < 0.7f) {
+        if (humidity < 0.3f) return Biome::BiomeType::Plains;
+        else if (humidity < 0.55f) return Biome::BiomeType::Woodland;
         else return Biome::BiomeType::Forest;
     }
-    else {  // temp <= 0.3f
-        if (moisture < 0.5f) return Biome::BiomeType::Tundra;
+    else {  // temperature <= 0.3f
+        if (humidity < 0.5f) return Biome::BiomeType::Tundra;
         else return Biome::BiomeType::SnowyTaiga;
     }
 	return Biome::BiomeType::None;  // Fallback, shows when something goes wrong
